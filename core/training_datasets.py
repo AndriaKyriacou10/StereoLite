@@ -146,7 +146,7 @@ class Middlebury(TrainingDataset):
             for scene in scenes:
                 path = os.path.join(scene, "view1.png")
                 self.left_img_paths.extend([path])
-                self.right_img_paths.extend([os.path.join(scene, "view1.png")])
+                self.right_img_paths.extend([os.path.join(scene, "view5.png")])
                 self.disp_paths.extend([os.path.join(scene, "disp1.png")])
                 
                 for illum in ["1", "2", "3"]:
@@ -165,8 +165,8 @@ class Middlebury(TrainingDataset):
                 
                 for illum in ["1", "2", "3"]:
                     for exp in ["0", "1", "2"]:
-                        self.left_img_paths.extend([os.path.join(scene, f"/Illum{illum}/Exp{exp}/view1.png")])
-                        self.right_img_paths.extend([os.path.join(scene, f"/Illum{illum}/Exp{exp}/view5.png")])
+                        self.left_img_paths.extend([os.path.join(scene, f"Illum{illum}/Exp{exp}/view1.png")])
+                        self.right_img_paths.extend([os.path.join(scene, f"Illum{illum}/Exp{exp}/view5.png")])
                         self.disp_paths.extend([os.path.join(scene, f"/disp1.png")])
         elif split == "2014":
             scenes = list((Path(root) / "2014").glob("*"))
