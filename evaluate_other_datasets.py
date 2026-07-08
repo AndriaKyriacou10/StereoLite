@@ -1,0 +1,138 @@
+import argparse
+import logging
+from sympy import to_cnf
+import torch
+import numpy as np
+from core.liteanystereo import CustomLiteAnyStereo
+from core.training_datasets import ETH3D, fetch_testing_dataloader, Middlebury
+from core.utils.utils import InputPadder
+from PIL import Image
+
+@torch.no_grad()
+def validate_eth3d(model, cost_volume = False):
+    model.eval()
+    
+    val_dataset = ETH3D()
+    out_list, epe_list = [], []
+    
+    for idx in range(len(val_dataset)):
+        img1, img2, _, _, disp_gt, valid_mask, occ_file = val_dataset[idx]
+        
+        # Add batch dimension
+        img1 = img1.unsqueeze(0).to(device) 
+        img2 = img2.unsqueeze(0).to(device)
+        
+        padder = InputPadder(img1.shape, divis_by=32)
+        img1, img2 = padder.pad(img1, img2)
+                
+        disp_pred = model(img1, img2, test_mode = True, compute_cost_volume = cost_volume)
+        disp_pred = padder.unpad(disp_pred).squeeze().cpu()
+        
+        assert disp_pred.shape == disp_gt.squeeze().shape
+        
+        epe_map = torch.abs(disp_pred - disp_gt.squeeze())
+
+        # 2. Flatten the error and ground truth tensors to 1D lists of pixels
+        epe_flattened = epe_map.flatten()
+        
+        occ_mask = Image.open(occ_file)
+        occ_mask = np.ascontiguousarray(occ_mask).flatten()
+        occ_tensor = torch.from_numpy(occ_mask == 255).bool()
+        
+        val = (valid_mask.flatten() >= 0.5) & occ_tensor 
+        
+        # Bad1 error
+        outliers = (epe_flattened > 1.0)
+        image_out = outliers[val].float().mean().item()
+        image_epe = epe_flattened[val].mean().item()
+
+        logging.info(f"ETH3D {idx+1} out of {len(val_dataset)}. EPE {round(image_epe,4)} Bad1 {round(image_out,4)}")
+        epe_list.append(image_epe)
+        out_list.append(image_out)
+
+    epe_list = np.array(epe_list)
+    out_list = np.array(out_list)
+
+    epe = np.mean(epe_list)
+    d1 = 100 * np.mean(out_list)
+
+    print(f"Validation ETH3D: EPE {epe}, Bad1 {d1}")
+    return {'eth3d-epe': epe, 'eth3d-d1': d1}
+
+@torch.no_grad()
+def validate_middlebury(model, split='MiddEval3', resolution='F', cost_volume = False):
+    model.eval()
+
+    
+    val_dataset = Middlebury(split=split, resolution=resolution)
+    
+    i = 0
+    out_list, epe_list = [], []
+    for idx in range(len(val_dataset)):
+        img1, img2, _, _, disp_gt, valid_mask = val_dataset[idx]
+
+        # Add batch dimension
+        img1 = img1.unsqueeze(0).to(device) 
+        img2 = img2.unsqueeze(0).to(device)
+        
+        padder = InputPadder(img1.shape, divis_by=32)
+        img1, img2 = padder.pad(img1, img2)
+        
+        disp_pred = model(img1, img2, test_mode = True, compute_cost_volume = cost_volume)
+        disp_pred = padder.unpad(disp_pred).squeeze().cpu()
+        
+        epe_map = torch.abs(disp_pred - disp_gt.squeeze())
+
+        # 2. Flatten the error and ground truth tensors to 1D lists of pixels
+        epe_flattened = epe_map.flatten()
+        disp_gt_flattened = disp_gt.flatten()
+
+        # 3. Apply the exact logic filter combination from the original repo
+        # (Ensuring it's safe for stereo by removing the multi-channel optical flow index)
+        val_mask = (valid_mask.flatten() >= 0.5) & (disp_gt_flattened < 192)
+
+        # 4. Extract metrics cleanly
+        image_epe = epe_flattened[val_mask].mean().item()
+        epe_list.append(image_epe)
+        
+        # 5. Extract the standard Middlebury "Bad 2.0" / D1 outlier metric (Outliers > 2 pixels)
+        outliers = (epe_flattened > 2.0)
+        image_bad2 = outliers[val_mask].float().mean().item()
+        out_list.append(image_bad2)
+        
+        logging.info(f"Middlebury Iter {idx+1} out of {len(val_dataset)}. EPE {round(image_epe,4)} Bad2 {round(image_bad2,4)}")
+        
+    epe_list = np.array(epe_list)
+    out_list = np.array(out_list)
+
+    epe = np.mean(epe_list)
+    d1 = 100 * np.mean(out_list)
+
+    print(f"Validation Middlebury{split}_{resolution}_192: EPE {epe}, Bad2 {d1}")
+    return {f'middlebury{split}_{resolution}-epe': epe, f'middlebury{split}-d1': d1}
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--ckpt', help='Restore Checkpoint', default='./checkpoints/phase2_best_model.pth')
+    parser.add_argument('--dataset', help='dataset for evaluation', choices=['eth3d', 'middlebury'])
+    parser.add_argument('--cost_volume', action='store_true', help='Compute cost volume during inference')
+    args = parser.parse_args()
+    
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    
+    model = CustomLiteAnyStereo()
+
+    
+    if args.ckpt is not None:
+        logging.info("Loading checkpoint...")
+        
+        weights = torch.load(args.ckpt, map_location=device)
+        model.load_state_dict(weights['model_state'])
+    model.to(device)
+    model.eval()   
+    
+    if args.dataset == 'eth3d':
+        validate_eth3d(model, args.cost_volume)
+    
+    elif args.dataset == 'middlebury':
+        validate_middlebury(model, args.cost_volume)
