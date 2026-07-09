@@ -132,7 +132,7 @@ if __name__ == '__main__':
     model.eval()   
     
     if args.dataset == 'eth3d':
-        validate_eth3d(model, args.cost_volume)
+        validate_eth3d(model, cost_volume = args.cost_volume)
     
     elif args.dataset == 'middlebury':
-        validate_middlebury(model, args.cost_volume)
+        validate_middlebury(model, cost_volume = args.cost_volume)

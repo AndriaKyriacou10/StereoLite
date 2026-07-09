@@ -1,25 +1,14 @@
 import torch
 import matplotlib.pyplot as plt
 from core.liteanystereo import CustomLiteAnyStereo
-from core.training_datasets import TrainingDataset, SceneFlowDataset
+from core.training_datasets import TrainingDataset, SceneFlowDataset, ETH3D, Middlebury
 import numpy as np
 import random
 import argparse
 from core.utils.utils import InputPadder
+import os
 
 def calculate_error(disp_pred, disp_gt, valid_mask):
-    # H, W = valid_mask.shape[-2:]
-    # # Crop the prediction down to match the ground truth size
-    # # This slices out the padded pixels on the bottom/right
-    # disp_pred = disp_pred[..., :H, :W]
-    
-    # # Calculate squared error on entire image    
-    # error = (disp_gt - disp_pred) ** 2
-    
-    # # Invert the valid mask (using ~) to find INVALID pixels, and set them to 0
-    # error[~valid_mask.bool().unsqueeze(1)] = 0.0
-    # return error
-    
     # 1. Force everything down to a clean 2D spatial layout [H, W]
     # This strips away any accidental [1, 1, H, W] or [H, 1, W] dimensions
     gt_2d = disp_gt.squeeze()
@@ -70,7 +59,7 @@ def parse_args():
                          help='Run with cost volume (teacher-equivalent) instead of the lite student path')
     parser.add_argument('--seed', type=int, default=42,
                          help='Seed for random sampling when --indices is not given')
-    
+    parser.add_argument('--dataset', type=str, default='sceneflow', choices=['sceneflow', 'eth3d', 'middlebury'], help='Dataset for evaluation')
     parser.add_argument('--indices', type=int, nargs='+', default=None,
                          help='Specific dataset indices to run, e.g. --indices 3237 1295 2273')
     return parser.parse_args()
@@ -79,14 +68,23 @@ if __name__ == '__main__':
     args = parse_args()
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model = CustomLiteAnyStereo().to(device)
-    
+    out_dir = None
     # Load Weights
     weights = torch.load(args.ckpt, map_location=device)
     model.load_state_dict(weights['model_state'])
     model.eval()
     
     print("Initializing dataset...")
-    val_dataset = SceneFlowDataset(augmentor=None, is_phase_2=False, mode='TEST', subsets=['flyingthings'])
+    if args.dataset == 'sceneflow':
+        val_dataset = SceneFlowDataset(augmentor=None, is_phase_2=False, mode='TEST', subsets=['flyingthings'])
+        out_dir = f"{args.out_dir}/sceneflow"
+    elif args.dataset == 'eth3d':
+        val_dataset = ETH3D()
+        out_dir = f"{args.out_dir}/eth3d"
+    elif args.dataset == 'middlebury':
+        val_dataset = Middlebury(split='MiddEval3', resolution='F')
+        out_dir = f"{args.out_dir}/middlebury"
+        
     dataset_length = len(val_dataset)
     
     if args.indices is not None:
@@ -123,7 +121,8 @@ if __name__ == '__main__':
         
         # Save dynamically named file so they don't overwrite
         tag = 'cv' if args.compute_cost_volume else 'nocv'
-        save_path = f"{args.out_dir}/inference_analysis_{idx}_{tag}.png"
+        os.makedirs(out_dir, exist_ok=True)
+        save_path = f"{out_dir}/inference_analysis_{idx}_{tag}.png"
         plt.savefig(save_path, dpi=300, bbox_inches='tight')
         plt.close()
         
