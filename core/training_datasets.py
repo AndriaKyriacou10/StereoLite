@@ -35,7 +35,6 @@ class TrainingDataset(Dataset):
         self.sparse = sparse
     
     def __getitem__(self, index):
-        print(self.left_img_paths[index], self.right_img_paths[index], self.disp_paths[index])
         
         img1 = frame_utils.read_gen(self.left_img_paths[index])
         img2 = frame_utils.read_gen(self.right_img_paths[index])
@@ -144,6 +143,10 @@ class Middlebury(TrainingDataset):
         if split == "2005":
             scenes = list((Path(root) / "2005").glob("*"))
             for scene in scenes:
+                disp_path = os.path.join(scene, "disp1.png")
+                if not os.path.exists(disp_path):
+                    continue
+                
                 path = os.path.join(scene, "view1.png")
                 self.left_img_paths.extend([path])
                 self.right_img_paths.extend([os.path.join(scene, "view5.png")])
@@ -338,9 +341,15 @@ def fetch_hard_testing_samples():
         # break
     
 def test_middlebury():
+    n_checks = 20
     dataset = Middlebury(split='2005', augmentor=None, is_phase_2=False)
-    img1, img2, _, _, _, _ = dataset[1]
-    # cv2.imwrite('img1.png', img1.permute(1, 2, 0).contiguous().cpu().numpy())
-    
+    idxs = range(0, len(dataset.left_img_paths), max(1, len(dataset.left_img_paths)//n_checks))
+    for i in idxs:
+        l, r, d = dataset.left_img_paths[i], dataset.right_img_paths[i], dataset.disp_paths[i]
+        scene_dir = os.path.dirname(d)
+        assert l.startswith(scene_dir) and r.startswith(scene_dir), (l, r, d)
+        assert os.path.exists(l) and os.path.exists(r) and os.path.exists(d), (l, r, d)
+    print(f"Checked {len(list(idxs))} triples — all aligned and exist.")
+
 if __name__ == '__main__':
     test_middlebury()
