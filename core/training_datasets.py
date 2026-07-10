@@ -213,7 +213,42 @@ class ETH3D(TrainingDataset):
         self.disp_paths = sorted(glob.glob(disp_pattern))
         
         self.occ_mask = [p.replace('disp0GT.pfm', 'mask0nocc.png') for p in self.disp_paths]
+    
+    # def __init__(self, root_dir = './data/datasets/ETH3D', augmentor = None, split = 'training'):
+    #     super().__init__(reader='', augmentor=augmentor)
         
+    #     search_pattern = os.path.join(root_dir, f'two_view_{split}', '*/im0.png')
+    #     self.left_img_paths = sorted(glob.glob(search_pattern))
+    #     self.right_img_paths = [p.replace('im0', 'im1') for p in self.left_img_paths]
+        
+    #     disp_pattern = os.path.join(root_dir, f'two_view_{split}_gt', '*/disp0GT.pfm')
+    #     self.disp_paths = sorted(glob.glob(disp_pattern))
+        
+    #     self.occ_mask = [p.replace('disp0GT.pfm', 'mask0nocc.png') for p in self.disp_paths]    
+    def __init__(self, root_dir='./data/datasets/ETH3D', augmentor=None, condition='train', train_frac=0.5, seed=42):
+        super().__init__(reader='', augmentor=augmentor)
+
+        split = 'training'  # always — only pool with real GT
+        search_pattern = os.path.join(root_dir, f'two_view_{split}', '*/im0.png')
+        all_left = sorted(glob.glob(search_pattern))
+
+        scene_ids = [os.path.basename(os.path.dirname(p)) for p in all_left]
+
+        unique_scenes = sorted(set(scene_ids))
+        rng = random.Random(seed)
+        rng.shuffle(unique_scenes)
+        split_point = int(len(unique_scenes) * train_frac)
+        keep_scenes = set(unique_scenes[:split_point]) if condition == 'train' else set(unique_scenes[split_point:])
+
+        self.left_img_paths = [p for p, sid in zip(all_left, scene_ids) if sid in keep_scenes]
+        self.right_img_paths = [p.replace('im0', 'im1') for p in self.left_img_paths]
+        self.disp_paths = [
+            p.replace(f'two_view_{split}', f'two_view_{split}_gt').replace('im0.png', 'disp0GT.pfm')
+            for p in self.left_img_paths
+        ]    
+        
+        self.occ_mask = [p.replace('disp0GT.pfm', 'mask0nocc.png') for p in self.disp_paths]
+    
     def __getitem__(self, index):
         clean_img1, clean_img2, aug_img1,aug_img2, disp, valid = super().__getitem__(index)
 
