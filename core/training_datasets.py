@@ -35,7 +35,7 @@ class TrainingDataset(Dataset):
         self.sparse = sparse
     
     def __getitem__(self, index):
-        print(f"{self.disp_paths[index]}")
+        # print(f"{self.disp_paths[index]}")
         img1 = frame_utils.read_gen(self.left_img_paths[index])
         img2 = frame_utils.read_gen(self.right_img_paths[index])
         disp = self.disparity_reader(self.disp_paths[index]) # np.float32
@@ -171,7 +171,7 @@ class Middlebury(TrainingDataset):
                     for exp in ["0", "1", "2"]:
                         self.left_img_paths.extend([os.path.join(scene, f"Illum{illum}/Exp{exp}/view1.png")])
                         self.right_img_paths.extend([os.path.join(scene, f"Illum{illum}/Exp{exp}/view5.png")])
-                        self.disp_paths.extend([os.path.join(scene, f"/disp1.png")])
+                        self.disp_paths.extend([os.path.join(scene, f"disp1.png")])
         elif split == "2014":
             scenes = list((Path(root) / "2014").glob("*"))
             for scene in scenes:
