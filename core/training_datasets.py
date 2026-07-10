@@ -35,7 +35,7 @@ class TrainingDataset(Dataset):
         self.sparse = sparse
     
     def __getitem__(self, index):
-        
+        print(f"{self.disp_paths[index]}")
         img1 = frame_utils.read_gen(self.left_img_paths[index])
         img2 = frame_utils.read_gen(self.right_img_paths[index])
         disp = self.disparity_reader(self.disp_paths[index]) # np.float32
@@ -193,7 +193,8 @@ class Middlebury(TrainingDataset):
                         path = str(scene / f"ambient/L0/im0e{s}.png")
                         self.left_img_paths.extend([path])
                         self.right_img_paths.extend([path.replace(f"im0e{s}", f"im1e{s}")])
-                        self.disp_paths.extend([path.replace(f"im0e{s}.png", "disp0.pfm")])
+                        self.disp_paths.extend([os.path.join(scene, "disp0.pfm")])
+
         else:
             search_pattern = os.path.join(root, "MiddEval3", f'training{resolution}', '*/im0.png')
             self.left_img_paths = sorted(glob.glob(search_pattern))
@@ -202,18 +203,6 @@ class Middlebury(TrainingDataset):
             assert len(self.left_img_paths) == len(self.right_img_paths) == len(self.disp_paths) > 0, [self.left_img_paths, split]
 
 class ETH3D(TrainingDataset):
-    def __init__(self, root_dir = './data/datasets/ETH3D', augmentor = None, split = 'training'):
-        super().__init__(reader='', augmentor=augmentor)
-        
-        search_pattern = os.path.join(root_dir, f'two_view_{split}', '*/im0.png')
-        self.left_img_paths = sorted(glob.glob(search_pattern))
-        self.right_img_paths = [p.replace('im0', 'im1') for p in self.left_img_paths]
-        
-        disp_pattern = os.path.join(root_dir, f'two_view_{split}_gt', '*/disp0GT.pfm')
-        self.disp_paths = sorted(glob.glob(disp_pattern))
-        
-        self.occ_mask = [p.replace('disp0GT.pfm', 'mask0nocc.png') for p in self.disp_paths]
-    
     # def __init__(self, root_dir = './data/datasets/ETH3D', augmentor = None, split = 'training'):
     #     super().__init__(reader='', augmentor=augmentor)
         
@@ -225,8 +214,8 @@ class ETH3D(TrainingDataset):
     #     self.disp_paths = sorted(glob.glob(disp_pattern))
         
     #     self.occ_mask = [p.replace('disp0GT.pfm', 'mask0nocc.png') for p in self.disp_paths]    
-    def __init__(self, root_dir='./data/datasets/ETH3D', augmentor=None, condition='train', train_frac=0.5, seed=42):
-        super().__init__(reader='', augmentor=augmentor)
+    def __init__(self, root_dir='./data/datasets/ETH3D', augmentor=None, condition='train', train_frac=0.5, seed=42, is_phase_2=False):
+        super().__init__(reader='', augmentor=augmentor, is_phase_2=is_phase_2)
 
         split = 'training'  # always — only pool with real GT
         search_pattern = os.path.join(root_dir, f'two_view_{split}', '*/im0.png')
@@ -255,25 +244,28 @@ class ETH3D(TrainingDataset):
         occ_file = self.occ_mask[index]
         return clean_img1, clean_img2, aug_img1,aug_img2, disp, valid, occ_file
 
-def fetch_training_dataloader(is_phase_2):
+def fetch_training_dataloader(is_phase_2, datasets = ['sceneflow']):
     
     stereo_augmentor = StereoAugmentor(crop_size=(256, 512), apply_clr_jitter=True)
-    
-    scene_flow = SceneFlowDataset(augmentor=stereo_augmentor, is_phase_2=is_phase_2, mode="TRAIN")
-    datasets = []
-    datasets.append(scene_flow)
-    
-    # Add Middlebury datasets for training
-    # for split in ['2005', '2006', '2021']:
-    #     datasets.append(Middlebury(
-    #         augmentor=stereo_augmentor, 
-    #         is_phase_2=is_phase_2, 
-    #         split=split
-    #     ))
-    
-    training_dataset = ConcatDataset(datasets)
+    datasets_training = []
+    for dataset in datasets:
+        if dataset == 'sceneflow':
+            scene_flow = SceneFlowDataset(augmentor=stereo_augmentor, is_phase_2=is_phase_2, mode="TRAIN")
+            datasets_training.append(scene_flow)
+            print(len(datasets_training))
+        elif dataset == 'eth3d':
+            eth3d = ETH3D(augmentor=stereo_augmentor, condition='train', train_frac=0.5, is_phase_2=is_phase_2)
+            datasets_training.append(eth3d)
+            print(len(datasets_training))
+            
+        elif dataset == 'middlebury':
+            for split in ['2005', '2006', '2021']:
+                middlebury = Middlebury(augmentor=stereo_augmentor, is_phase_2=is_phase_2, split=split)
+                datasets_training.append(middlebury)
+            print(len(datasets_training))
 
-    
+    training_dataset = ConcatDataset(datasets_training)
+
     logging.info(f"Training with {len(training_dataset)} image pairs")
     print(f"Training with {len(training_dataset)} image pairs")
     
@@ -314,78 +306,37 @@ def fetch_testing_dataloader(dataset = 'sceneflow'):
         pin_memory=True
     )
     return val_loader
-
-def fetch_hard_testing_samples():
-    dataset = SceneFlowDataset(augmentor=None, is_phase_2=False, mode='TEST', subsets=['flyingthings'])
-    # for idx in range(len(dataset)):
-    idx = 3237
-    img1, img2, _, _, _, _ = dataset[idx]
-
-    # Convert to numpy
-    img1_np = img1.permute(1, 2, 0).contiguous().cpu().numpy()
-    img2_np = img2.permute(1, 2, 0).contiguous().cpu().numpy()
-    
-    # Change to gray scale
-    img1_gray = cv2.cvtColor(img1_np, cv2.COLOR_RGB2GRAY)
-    img2_gray = cv2.cvtColor(img2_np, cv2.COLOR_RGB2GRAY)
-    
-    height, width = img1_gray.shape
-    patch_size = 32
-    row_start = [i for i in range(0, height, patch_size)]
-    col_start = [i for i in range(0, width, patch_size)]
-    
-    
-    indices = [ (i, j) for i in row_start for j in col_start if i + patch_size <= height and j + patch_size <= width]
-    patch_score = []
-    for row, col in indices:
-        # Only interested in horizontal pixel correlations
-        patch1 = img1_gray[row:row+patch_size, col:col+patch_size]
-        patch1_1d = np.mean(patch1, axis=0)
-        
-        # Subtract mean to center the data
-        patch1_1d = patch1_1d - np.mean(patch1_1d)  
-        corr = np.correlate(patch1_1d, patch1_1d, mode='same')
-        corr = corr / np.max(corr)  # Normalize the correlation
-        corr[len(corr)//2-4:len(corr)//2+4] = -np.inf  # Zero out the central peak to avoid trivial correlation
-        # corr = np.concat([corr[:patch_size//2], corr[patch_size//2+1:]]) 
-        peaks = scipy.signal.find_peaks(corr, height=(0.0, 1))[0]
-        peak_values = corr[peaks]
-        score = np.max(peak_values) if peak_values.size > 0 else -np.inf
-        
-        patch_score.append((score, row, col))
-        
-    s = [s for s,r,c in patch_score if r==96 and c==896]
-    print(s)
-    patch_score.sort(key=lambda x: x[0])
-    min_score = patch_score[0]
-    mid_score = patch_score[len(patch_score)//2]
-    max_score = patch_score[-1]
-    # print(patch_score)
-    p_min = img1_np[min_score[1]:min_score[1]+patch_size, min_score[2]:min_score[2]+patch_size]
-    p_mid = img1_np[mid_score[1]:mid_score[1]+patch_size, mid_score[2]:mid_score[2]+patch_size]
-    p_max = img1_np[max_score[1]:max_score[1]+patch_size, max_score[2]:max_score[2]+patch_size]
-    
-    img = cv2.rectangle(img1_np.copy().astype(np.uint8), (min_score[2], min_score[1]), (min_score[2]+patch_size, min_score[1]+patch_size), (255, 0, 0), 2)
-    img = cv2.rectangle(img.copy(), (mid_score[2], mid_score[1]), (mid_score[2]+patch_size, mid_score[1]+patch_size), (0, 255, 0), 2)
-    img = cv2.rectangle(img.copy(), (max_score[2], max_score[1]), (max_score[2]+patch_size, max_score[1]+patch_size), (0, 0, 255), 2)
-    img = cv2.rectangle(img.copy(), (896, 96), (896+patch_size, 96+patch_size), (255, 255, 0), 2)
-    cv2.imwrite(f'./hard_testing_samples/img_with_patches_{idx}.png', cv2.cvtColor(img, cv2.COLOR_RGB2BGR))
-    
-    img_min = Image.fromarray(p_min.astype(np.uint8)).save(f'./hard_testing_samples/img_min_{idx}.png')
-    img_mid = Image.fromarray(p_mid.astype(np.uint8)).save(f'./hard_testing_samples/img_mid_{idx}.png')
-    img_max = Image.fromarray(p_max.astype(np.uint8)).save(f'./hard_testing_samples/img_max_{idx}.png')
-        # break
     
 def test_middlebury():
-    n_checks = 20
-    dataset = Middlebury(split='MiddEval3', augmentor=None, is_phase_2=False)
-    idxs = range(0, len(dataset.left_img_paths), max(1, len(dataset.left_img_paths)//n_checks))
+    n_checks = 100
+    dataset1 = Middlebury(split='2005', augmentor=None, is_phase_2=False)
+    dataset2 = Middlebury(split='2006', augmentor=None, is_phase_2=False)
+    dataset3 = Middlebury(split='2021', augmentor=None, is_phase_2=False)
+    data_samples = dataset1.left_img_paths + dataset2.left_img_paths + dataset3.left_img_paths
+    
+    # idxs = range(0, len(dataset.left_img_paths), max(1, len(dataset.left_img_paths)//n_checks))
+    print(len(data_samples))
+    return
     for i in idxs:
         l, r, d = dataset.left_img_paths[i], dataset.right_img_paths[i], dataset.disp_paths[i]
+        # print(f"{l} | {r} | {d}")
         scene_dir = os.path.dirname(d)
         assert l.startswith(scene_dir) and r.startswith(scene_dir), (l, r, d)
         assert os.path.exists(l) and os.path.exists(r) and os.path.exists(d), (l, r, d)
     print(f"Checked {len(list(idxs))} triples — all aligned and exist.")
 
-if __name__ == '__main__':
-    test_middlebury()
+def test_eth3d():
+    n_checks = 20
+    dataset = ETH3D(augmentor=None, condition='train', train_frac=0.7, is_phase_2=False)
+    print(f"ETH3D dataset has {len(dataset.left_img_paths)} samples.")
+    return
+    idxs = range(0, len(dataset.left_img_paths), max(1, len(dataset.left_img_paths)//n_checks))
+    for i in idxs:
+        l, r, d = dataset.left_img_paths[i], dataset.right_img_paths[i], dataset.disp_paths[i]
+        scene_dir = os.path.basename(os.path.dirname(d))
+        # print(f"{scene_dir in l} | {l}")
+        assert scene_dir in l and scene_dir in r and scene_dir in d, (l, r, d)
+        assert os.path.exists(l) and os.path.exists(r) and os.path.exists(d), (l, r, d)
+    print(f"Checked {len(list(idxs))} triples — all aligned and exist.")
+# if __name__ == '__main__':
+#     test_eth3d()
