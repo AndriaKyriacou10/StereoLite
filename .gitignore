@@ -3,4 +3,4 @@ __pycache__/
 *.e*
 *.o*
 checkpoints/
-
+*.sh

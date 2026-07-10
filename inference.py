@@ -26,7 +26,10 @@ def calculate_error(disp_pred, disp_gt, valid_mask):
 @torch.no_grad()
 def get_prediction(model, device, dataset, idx, compute_cost_volume=False):
     
-    img1, img2, _, _, disp_gt, valid_mask = dataset[idx]
+    if isinstance(dataset, ETH3D):
+        img1, img2, _, _, disp_gt, valid_mask, occ_file = dataset[idx]
+    else:
+        img1, img2, _, _, disp_gt, valid_mask = dataset[idx]
     
     img1 = img1.unsqueeze(0).to(device)
     img2 = img2.unsqueeze(0).to(device)
@@ -35,7 +38,7 @@ def get_prediction(model, device, dataset, idx, compute_cost_volume=False):
     
     padder = InputPadder(img1.shape, divis_by=32)
     img1, img2 = padder.pad(img1, img2)
-            
+    print(img1.shape)
     disp_pred = model(img1, img2, test_mode = True, compute_cost_volume=compute_cost_volume)
     
     disp_pred = padder.unpad(disp_pred)
@@ -48,6 +51,7 @@ def get_prediction(model, device, dataset, idx, compute_cost_volume=False):
     disp_pred_np = disp_pred.detach().cpu().squeeze().numpy()
     error_np = error.detach().cpu().squeeze().numpy()
     
+    print(f"Min Disp:{disp_pred.min()} | Max Disp:{disp_pred.max()} | Percenile: {np.percentile(disp_pred_np, [5, 25, 50, 75, 95])}")
     return left_img_np, disp_pred_np, error_np
     
 def parse_args():
@@ -69,6 +73,7 @@ if __name__ == '__main__':
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model = CustomLiteAnyStereo().to(device)
     out_dir = None
+    
     # Load Weights
     weights = torch.load(args.ckpt, map_location=device)
     model.load_state_dict(weights['model_state'])

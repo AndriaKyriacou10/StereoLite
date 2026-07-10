@@ -39,16 +39,17 @@ class TrainingDataset(Dataset):
         img1 = frame_utils.read_gen(self.left_img_paths[index])
         img2 = frame_utils.read_gen(self.right_img_paths[index])
         disp = self.disparity_reader(self.disp_paths[index]) # np.float32
+                
+        if isinstance(disp, tuple):
+            disp, valid = disp
+        else:
+            valid = disp < self.max_disp
         
         img1 = np.array(img1).astype(np.uint8)
         img2 = np.array(img2).astype(np.uint8)
 
         disp = np.array(disp).astype(np.float32)
-        
-        if isinstance(disp, tuple):
-            disp, valid = disp
-        else:
-            valid = disp < self.max_disp
+
             
         if len(img1.shape) == 2:
             img1 = np.tile(img1[..., None], (1, 1, 3))
@@ -342,7 +343,7 @@ def fetch_hard_testing_samples():
     
 def test_middlebury():
     n_checks = 20
-    dataset = Middlebury(split='2005', augmentor=None, is_phase_2=False)
+    dataset = Middlebury(split='MiddEval3', augmentor=None, is_phase_2=False)
     idxs = range(0, len(dataset.left_img_paths), max(1, len(dataset.left_img_paths)//n_checks))
     for i in idxs:
         l, r, d = dataset.left_img_paths[i], dataset.right_img_paths[i], dataset.disp_paths[i]

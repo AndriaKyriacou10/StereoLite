@@ -101,6 +101,7 @@ def validate_middlebury(model, split='MiddEval3', resolution='F', cost_volume = 
         out_list.append(image_bad2)
         
         logging.info(f"Middlebury Iter {idx+1} out of {len(val_dataset)}. EPE {round(image_epe,4)} Bad2 {round(image_bad2,4)}")
+        print(f"Valid pixels: {val_mask.sum().item()} / {val_mask.numel()} ({100*val_mask.float().mean().item():.1f}%)")
         
     epe_list = np.array(epe_list)
     out_list = np.array(out_list)
