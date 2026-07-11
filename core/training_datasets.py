@@ -77,7 +77,7 @@ class TrainingDataset(Dataset):
         disp = torch.from_numpy(disp).unsqueeze(0)
         valid = torch.from_numpy(valid).float()
         
-        print(f"Index {index} | Left: {aug_img1.shape}, Right: {aug_img2.shape}, Disp: {disp.shape}")
+        # print(f"Index {index} | Left: {aug_img1.shape}, Right: {aug_img2.shape}, Disp: {disp.shape}")
         return clean_img1, clean_img2, aug_img1,aug_img2, disp, valid
 
     def __len__(self):
@@ -204,19 +204,8 @@ class Middlebury(TrainingDataset):
             self.disp_paths = [p.replace('im0.png', 'disp0GT.pfm') for p in self.left_img_paths]
             assert len(self.left_img_paths) == len(self.right_img_paths) == len(self.disp_paths) > 0, [self.left_img_paths, split]
 
-class ETH3D(TrainingDataset):
-    # def __init__(self, root_dir = './data/datasets/ETH3D', augmentor = None, split = 'training'):
-    #     super().__init__(reader='', augmentor=augmentor)
-        
-    #     search_pattern = os.path.join(root_dir, f'two_view_{split}', '*/im0.png')
-    #     self.left_img_paths = sorted(glob.glob(search_pattern))
-    #     self.right_img_paths = [p.replace('im0', 'im1') for p in self.left_img_paths]
-        
-    #     disp_pattern = os.path.join(root_dir, f'two_view_{split}_gt', '*/disp0GT.pfm')
-    #     self.disp_paths = sorted(glob.glob(disp_pattern))
-        
-    #     self.occ_mask = [p.replace('disp0GT.pfm', 'mask0nocc.png') for p in self.disp_paths]    
-    def __init__(self, root_dir='./data/datasets/ETH3D', augmentor=None, condition='train', train_frac=0.5, seed=42, is_phase_2=False):
+class ETH3D(TrainingDataset):   
+    def __init__(self, root_dir='./data/datasets/ETH3D', augmentor=None, condition='train', train_frac=0.5, seed=42, is_phase_2=False, return_occ = False):
         super().__init__(reader='', augmentor=augmentor, is_phase_2=is_phase_2)
 
         split = 'training'  # always — only pool with real GT
@@ -239,10 +228,15 @@ class ETH3D(TrainingDataset):
         ]    
         
         self.occ_mask = [p.replace('disp0GT.pfm', 'mask0nocc.png') for p in self.disp_paths]
+        self.condition = condition
+        self.return_occ = return_occ
     
     def __getitem__(self, index):
         clean_img1, clean_img2, aug_img1,aug_img2, disp, valid = super().__getitem__(index)
 
+        if not self.return_occ:
+            return clean_img1, clean_img2, aug_img1,aug_img2, disp, valid
+        
         occ_file = self.occ_mask[index]
         return clean_img1, clean_img2, aug_img1,aug_img2, disp, valid, occ_file
 
@@ -281,27 +275,32 @@ def fetch_training_dataloader(is_phase_2, datasets = ['sceneflow']):
     )
     return train_loader
 
-def fetch_testing_dataloader(dataset = 'sceneflow'):
-    
-    if dataset == 'sceneflow':
-        val_dataset = SceneFlowDataset(
-            augmentor=None,
-            is_phase_2=False,
-            mode='TEST',
-            subsets=['flyingthings']
-        )
-    # elif dataset == 'middlebury':
-    #     val_dataset = Middlebury(
-    #         augmentor=None,
-    #         is_phase_2=False,
-    #         split='MiddEval3',
-    #         resolution='F'
-    #     )
-    # elif dataset == 'eth3d':
-    #     val_dataset = ETH3D(augmentor=None)
+def fetch_testing_dataloader(datasets = ['sceneflow'], return_occ = False):
+    val_datasets = []
+    for dataset in datasets:
         
+        if dataset == 'sceneflow':
+            val_dataset = SceneFlowDataset(
+                augmentor=None,
+                is_phase_2=False,
+                mode='TEST',
+                subsets=['flyingthings']
+            )
+            val_datasets.append(val_dataset)
+        elif dataset == 'middlebury':
+            val_dataset = Middlebury(
+                augmentor=None,
+                is_phase_2=False,
+                split='MiddEval3',
+                resolution='F'
+            )
+            val_datasets.append(val_dataset)
+        elif dataset == 'eth3d':
+            val_dataset = ETH3D(augmentor=None, condition='test', return_occ=return_occ, is_phase_2=False)
+            val_datasets.append(val_dataset)
+    
     val_loader = DataLoader(
-        val_dataset,
+        ConcatDataset(val_datasets),
         batch_size = 4,
         shuffle=False,
         num_workers=8,

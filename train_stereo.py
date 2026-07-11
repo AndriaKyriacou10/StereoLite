@@ -10,42 +10,6 @@ import argparse
 from datetime import datetime
 from core.utils.utils import InputPadder, CustomLogger
 
-# class CustomLogger:
-#     def __init__(self, log_dir, flush_freq = 100):
-#         self.writer = SummaryWriter(log_dir)
-        
-#         self.flush_freq = flush_freq
-#         self.global_step = 0
-#         self.running_sums = {}
-    
-#     def log_batch(self, metrics_dict: dict):
-#         self.global_step += 1
-#         for key, val in metrics_dict.items():
-#             self.running_sums[key] = self.running_sums.get(key, 0.0) + val
-                
-#         if self.global_step % self.flush_freq == 0:
-#             self._flush()
-            
-#     def _flush(self):
-#         """Calculates averages, logs them, and empties the bucket."""
-#         # 1. Calculate the average for every metric in the bucket
-#         for key, total_sum in self.running_sums.items():
-#             avg_value = total_sum / self.flush_freq
-            
-#             # 2. Send the smooth average to the TensorBoard graph
-#             self.writer.add_scalar(key, avg_value, self.global_step)
-        
-#         # 3. Print a clean summary to the terminal
-#         # print(f"Step {self.global_step} | Metrics logged to TensorBoard")
-        
-#         # 4. Empty the bucket!
-#         self.running_sums = {}
-
-#     def close(self):
-#         """Always close the writer at the very end of training."""
-#         self.writer.close()
-
-
 def fetch_optimizer(model, learning_rate=0.0002, weight_decay=0.00001, total_steps=100000):
     """Sets up the AdamW optimizer and OneCycle learning rate scheduler."""
     optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=weight_decay, eps=1e-8)
@@ -259,7 +223,7 @@ def phase1_training(epochs):
     # Load Dataset
     print("Loading Dataset...")
     train_loader = fetch_training_dataloader(is_phase_2=False, datasets=['sceneflow', 'eth3d', 'middlebury'])
-    val_loader = fetch_testing_dataloader()
+    val_loader = fetch_testing_dataloader(datasets=['sceneflow', 'eth3d', 'middlebury'], return_occ=False)
     
     # Load Model
     model = CustomLiteAnyStereo().to(device)
