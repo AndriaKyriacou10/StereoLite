@@ -76,6 +76,8 @@ class TrainingDataset(Dataset):
         
         disp = torch.from_numpy(disp).unsqueeze(0)
         valid = torch.from_numpy(valid).float()
+        
+        print(f"Index {index} | Left: {aug_img1.shape}, Right: {aug_img2.shape}, Disp: {disp.shape}")
         return clean_img1, clean_img2, aug_img1,aug_img2, disp, valid
 
     def __len__(self):

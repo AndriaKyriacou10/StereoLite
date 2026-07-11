@@ -258,7 +258,7 @@ def phase1_training(epochs):
     
     # Load Dataset
     print("Loading Dataset...")
-    train_loader = fetch_training_dataloader(is_phase_2=False)
+    train_loader = fetch_training_dataloader(is_phase_2=False, datasets=['sceneflow', 'eth3d', 'middlebury'])
     val_loader = fetch_testing_dataloader()
     
     # Load Model
@@ -290,6 +290,8 @@ def phase1_training(epochs):
         val_epe, _ = evaluate(model, val_loader, device, logger)
         logger.writer.add_text('Validation Summary', f"Epoch {epoch+1}: Validation EPE = {val_epe:.4f}", epoch+1)
         
+        logger.log_batch({'val_epe': val_epe})
+        
         print(text_string)        
         checkpoint = {
             'epoch': epoch,
@@ -298,12 +300,12 @@ def phase1_training(epochs):
             'scheduler_state': scheduler.state_dict()
         }
         
-        if epoch % 5 == 0 or epoch == epochs - 1:
-            torch.save(checkpoint, f"{save_dir}/phase1_epoch_{epoch+1}.pth")
+        # if epoch % 5 == 0 or epoch == epochs - 1:
+        #     torch.save(checkpoint, f"{save_dir}/phase1_epoch_{epoch+1}.pth")
         
         if val_epe < best_epe:
             best_epe = val_epe
-            torch.save({'model_state': model.state_dict()}, f"{save_dir}/phase1_best_model.pth")
+            torch.save({'model_state': model.state_dict()}, f"{save_dir}/phase1_best_model_RUN2.pth")
             print(f"--> Saved new best model: (EPE: {best_epe:.4f})")
     
     logger.close()  
@@ -361,6 +363,7 @@ def phase2_training(epochs, val_freq = 2500):
         val_epe, _ = evaluate(student_model, val_loader, device, logger, cv=False)
         logger.writer.add_text("Phase 2: Validation Summary", f"Epoch {epoch + 1} | Validation EPE={val_epe:.2f}", epoch + 1)     
         print(f"Phase 2 | Epoch {epoch+1} | Validation EPE: {val_epe:.2f}") 
+        
     
         checkpoint = {
             'epoch': epoch,
@@ -380,10 +383,10 @@ def phase2_training(epochs, val_freq = 2500):
     
     
 def main(epochs):
-    # print("Starting Phase 1 Training...")
-    # phase1_training(epochs)
-    print('Staring Phase 2 Training...')
-    phase2_training(epochs)
+    print("Starting Phase 1 Training...")
+    phase1_training(epochs)
+    # print('Staring Phase 2 Training...')
+    # phase2_training(epochs)
     print("Training Complete!")
     
 if __name__ == "__main__":

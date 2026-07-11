@@ -115,7 +115,7 @@ def validate_middlebury(model, split='MiddEval3', resolution='F', cost_volume = 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--ckpt', help='Restore Checkpoint', default='./checkpoints/phase2_best_model.pth')
-    parser.add_argument('--dataset', help='dataset for evaluation', choices=['eth3d', 'middlebury'])
+    parser.add_argument('--dataset', help='dataset for evaluation', choices=['eth3d'] +[f"middlebury_{s}" for s in 'FHQ'])
     parser.add_argument('--cost_volume', action='store_true', help='Compute cost volume during inference')
     args = parser.parse_args()
     
@@ -135,5 +135,5 @@ if __name__ == '__main__':
     if args.dataset == 'eth3d':
         validate_eth3d(model, cost_volume = args.cost_volume)
     
-    elif args.dataset == 'middlebury':
-        validate_middlebury(model, cost_volume = args.cost_volume)
+    elif args.dataset in [f"middlebury_{s}" for s in 'FHQ']:
+        validate_middlebury(model, cost_volume = args.cost_volume, resolution = args.dataset[-1])
