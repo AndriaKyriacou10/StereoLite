@@ -277,6 +277,7 @@ def fetch_training_dataloader(is_phase_2, datasets = ['sceneflow']):
 
 def fetch_testing_dataloader(datasets = ['sceneflow'], return_occ = False):
     val_datasets = []
+    loaders = {}
     for dataset in datasets:
         
         if dataset == 'sceneflow':
@@ -286,7 +287,8 @@ def fetch_testing_dataloader(datasets = ['sceneflow'], return_occ = False):
                 mode='TEST',
                 subsets=['flyingthings']
             )
-            val_datasets.append(val_dataset)
+            # val_datasets.append(val_dataset)
+            batch_size = 4
         elif dataset == 'middlebury':
             val_dataset = Middlebury(
                 augmentor=None,
@@ -294,19 +296,28 @@ def fetch_testing_dataloader(datasets = ['sceneflow'], return_occ = False):
                 split='MiddEval3',
                 resolution='F'
             )
-            val_datasets.append(val_dataset)
+            # val_datasets.append(val_dataset)
+            batch_size = 1
         elif dataset == 'eth3d':
             val_dataset = ETH3D(augmentor=None, condition='test', return_occ=return_occ, is_phase_2=False)
             val_datasets.append(val_dataset)
-    
-    val_loader = DataLoader(
-        ConcatDataset(val_datasets),
-        batch_size = 4,
-        shuffle=False,
-        num_workers=8,
-        pin_memory=True
-    )
-    return val_loader
+            batch_size = 1
+        
+        loaders[dataset] = DataLoader(
+            val_dataset,
+            batch_size=batch_size,
+            shuffle=False,
+            num_workers=8,
+            pin_memory=True
+        )
+    # val_loader = DataLoader(
+    #     ConcatDataset(val_datasets),
+    #     batch_size = 4,
+    #     shuffle=False,
+    #     num_workers=8,
+    #     pin_memory=True
+    # )
+    return loaders
     
 def test_middlebury():
     n_checks = 100
