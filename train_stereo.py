@@ -63,52 +63,64 @@ def calculate_metrics(final_pred, disparity_gt, valid_mask, logger=None, is_eval
         "bad3": (torch.mean((abs_err > 3).float()) * 100.0).item()
     }
     
-    # if logger and is_eval:
-    #     if not abs_err.numel():
-    #         logger.writer.add_text('Calculate Metrics', f"Absolute Error: Is Empty")
-    #         logger.writer.add_text('Calculate Metrics', f"Valid Mask: {"Is Empty" if not valid_mask.any() else "Not empty"}", logger.global_step)
-    
-    #     logger.writer.add_text('Calculate Metrics', f"EPE: {epe}", logger.global_step)
-
     return epe.item(), bad
 
 def evaluate(model:CustomLiteAnyStereo, val_loader, device, logger=None, cv=True):
     #  Set to validation mode
     model.eval()
 
-    total_epe = 0.0
-    total_bad1 = 0.0
-    total_bad2 = 0.0
-    total_bad3 = 0.0
-
+    total_epe = total_bad1 = total_bad2 = total_bad3 = 0.0
+    n_batches = 0
     with torch.no_grad():
-        for batch_idx, data in enumerate(val_loader):
-            img1, img2, _, _, disp_gt, valid_mask = data
+    #     for batch_idx, data in enumerate(val_loader):
+    #         img1, img2, _, _, disp_gt, valid_mask = data
             
-            img1 = img1.to(device)
-            img2 = img2.to(device)
-            disp_gt = disp_gt.to(device)
-            valid_mask = valid_mask.to(device)
+    #         img1 = img1.to(device)
+    #         img2 = img2.to(device)
+    #         disp_gt = disp_gt.to(device)
+    #         valid_mask = valid_mask.to(device)
             
-            padder = InputPadder(img1.shape, divis_by=32)
-            img1, img2 = padder.pad(img1, img2)
+    #         padder = InputPadder(img1.shape, divis_by=32)
+    #         img1, img2 = padder.pad(img1, img2)
             
-            if not valid_mask.any(): 
-                continue
-            disp_pred = model(img1, img2, test_mode = True, compute_cost_volume = cv)
-            epe, bad = calculate_metrics(disp_pred, disp_gt, valid_mask, logger, True)
+    #         if not valid_mask.any(): 
+    #             continue
+    #         disp_pred = model(img1, img2, test_mode = True, compute_cost_volume = cv)
+    #         epe, bad = calculate_metrics(disp_pred, disp_gt, valid_mask, logger, True)
             
-            total_epe += epe
-            total_bad1 += bad['bad1']
-            total_bad2 += bad['bad2']
-            total_bad3 += bad['bad3']
+    #         total_epe += epe
+    #         total_bad1 += bad['bad1']
+    #         total_bad2 += bad['bad2']
+    #         total_bad3 += bad['bad3']
                 
-    avg_epe = total_epe / len(val_loader)
-    avg_bad1 = total_bad1 / len(val_loader)
-    avg_bad2 = total_bad2 / len(val_loader)
-    avg_bad3 = total_bad3 / len(val_loader)
+    # avg_epe = total_epe / len(val_loader)
+    # avg_bad1 = total_bad1 / len(val_loader)
+    # avg_bad2 = total_bad2 / len(val_loader)
+    # avg_bad3 = total_bad3 / len(val_loader)
     
-    return avg_epe, {'bad1':avg_bad1, 'bad2':avg_bad2, 'bad3': avg_bad3}
+    # return avg_epe, {'bad1':avg_bad1, 'bad2':avg_bad2, 'bad3': avg_bad3}
+    
+        for data in val_loader:
+                img1, img2, _, _, disp_gt, valid_mask = data
+                img1, img2 = img1.to(device), img2.to(device)
+                disp_gt, valid_mask = disp_gt.to(device), valid_mask.to(device)
+
+                padder = InputPadder(img1.shape, divis_by=32)
+                img1, img2 = padder.pad(img1, img2)
+
+                if not valid_mask.any():
+                    continue
+
+                disp_pred = model(img1, img2, test_mode=True, compute_cost_volume=cv)
+                epe, bad = calculate_metrics(disp_pred, disp_gt, valid_mask, logger, True)
+
+                total_epe += epe
+                total_bad1 += bad['bad1']
+                total_bad2 += bad['bad2']
+                total_bad3 += bad['bad3']
+                n_batches += 1
+
+    return total_epe / n_batches, {'bad1': total_bad1/n_batches, 'bad2': total_bad2/n_batches, 'bad3': total_bad3/n_batches}
 
 def train_one_epoch_phase1(model:CustomLiteAnyStereo, optimizer, scheduler, dataloader, device, scaler, logger=None):
     model.train()
@@ -223,7 +235,7 @@ def phase1_training(epochs):
     # Load Dataset
     print("Loading Dataset...")
     train_loader = fetch_training_dataloader(is_phase_2=False, datasets=['sceneflow', 'eth3d', 'middlebury'])
-    val_loader = fetch_testing_dataloader(datasets=['sceneflow', 'eth3d', 'middlebury'], return_occ=False)
+    val_loaders = fetch_testing_dataloader(datasets=['sceneflow', 'eth3d', 'middlebury'], return_occ=False)
     
     # Load Model
     model = CustomLiteAnyStereo().to(device)
@@ -251,10 +263,15 @@ def phase1_training(epochs):
         logger.writer.add_text('Epoch Summary', text_string, epoch+1)
         
         # VALIDATION
-        val_epe, _ = evaluate(model, val_loader, device, logger)
-        logger.writer.add_text('Validation Summary', f"Epoch {epoch+1}: Validation EPE = {val_epe:.4f}", epoch+1)
+        per_dataset_epe = {}
+        for name, val_loader in val_loaders.items():
+            val_epe, _ = evaluate(model, val_loader, device, logger)
+            per_dataset_epe[name] = val_epe
+            logger.writer.add_text('Validation - Dataset', f"Epoch {epoch+1}: Dataset: {name} Validation EPE = {val_epe:.4f}", epoch+1)
         
+        val_epe = sum(per_dataset_epe.values()) / len(per_dataset_epe)
         logger.log_batch({'val_epe': val_epe})
+        logger.writer.add_text('Validation Summary', f"Epoch {epoch+1}: Validation EPE = {val_epe:.4f}", epoch+1)
         
         print(text_string)        
         checkpoint = {

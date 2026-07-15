@@ -9,7 +9,7 @@ from pathlib import Path
 from glob import glob
 import os.path as osp
 from .utils import frame_utils
-
+from collections import defaultdict
 
 class StereoDataset(data.Dataset):
     def __init__(self, aug_params=None, sparse=False, reader=None, real_world=False):
@@ -220,3 +220,130 @@ class DrivingStereoWeather(StereoDataset):
         for idx, (img1, img2, disp) in enumerate(zip(image1_list, image2_list, disp_list)):
             self.image_list += [[img1, img2]]
             self.disparity_list += [disp]
+
+class SceneFlowVideo():
+    def __init__(self, root_dir='./data/datasets/SceneFlow', mode='TRAIN', subsets=['flyingthings', 'driving', 'monkaa']):
+        self.left_img_paths = []
+        self.right_img_paths = []
+        self.disp_paths = []
+        self.flow_paths = []
+        
+        self.root_dir = root_dir
+        self.mode = mode.upper()
+        self.scenes = []
+        
+    def _load_flying(self):
+        search_pattern = os.path.join(self.root_dir, 'FlyingThings3D', f'frames_cleanpass/{self.mode}/*/*/left/*.png')
+        left_imgs = sorted(glob.glob(search_pattern))
+        
+        self.left_img_paths.extend(left_imgs)
+        # self.right_img_paths.extend([p.replace('left', 'right') for p in self.left_img_paths])
+        # self.disp_paths.extend([p.replace('frames_cleanpass', 'disparity').replace('.png', '.pfm') for p in self.left_img_paths])
+        
+        scenes_dict = defaultdict(list)
+        for left_path in self.left_img_paths:
+            scene_id = os.path.dirname(os.path.dirname(left_path)).split(f'{self.mode}/')[-1]
+            frame_num = os.path.basename(left_path).split('.')[0]
+            
+            
+            right_path = left_path.replace('left', 'right')
+            disp_path = left_path.replace('frames_cleanpass', 'disparity').replace('.png', '.pfm')
+            flow_path = os.path.join(
+                            self.root_dir, 'FlyingThings3D', 'optical_flow', self.mode, scene_id,
+                            'into_future', 'left', f'OpticalFlowIntoFuture_{frame_num}_L.pfm'
+                        )                               
+            
+            if not (os.path.exists(right_path) and os.path.exists(disp_path)):
+                print(f"[WARN] Skipping incomplete frame: {left_path}")
+                continue
+            frame_num = int(frame_num)
+            scenes_dict[f'{scene_id}'].append({
+                'frame_num': frame_num, 
+                'left': left_path, 
+                'right': right_path, 
+                'disp': disp_path, 
+                'flow': flow_path
+            })
+            
+        for scene_id, frames in scenes_dict.items():
+            frames_sorted = sorted(frames, key=lambda f: f['frame_num'])
+            self.scenes.append({
+                'scene_id': scene_id,
+                'left':  [f['left']  for f in frames_sorted],
+                'right': [f['right'] for f in frames_sorted],
+                'disp':  [f['disp']  for f in frames_sorted],
+                'flow':  [f['flow']  for f in frames_sorted],
+            })
+
+        self.scenes.sort(key=lambda s: s['scene_id'])
+    
+    def _load_driving(self):
+        if self.mode == 'TRAIN':
+            search_pattern = os.path.join(self.root_dir, 'Driving', 'frames_cleanpass', '**/*.png')
+            images = sorted(glob.glob(search_pattern, recursive=True))
+            
+            left_images = [p for p in images if '/left/' in p]
+            self.left_img_paths.extend(left_images)
+            self.right_img_paths.extend([p.replace('/left/', '/right/') for p in left_images])
+            self.disp_paths.extend([p.replace('frames_cleanpass', 'disparity').replace('.png', '.pfm') for p in left_images])
+    
+    def _fetch_images(self, images_path):
+        imgs = []
+        for img_path in images_path:
+            img = frame_utils.read_gen(img_path)
+            img = np.array(img).astype(np.uint8)
+            
+            if len(img.shape) == 2:
+                img = np.tile(img[..., None], (1, 1, 3))
+            else:
+                img = img[..., :3]
+            img = torch.from_numpy(np.ascontiguousarray(img)).permute(2, 0, 1).float()
+            imgs.append(img)
+        return imgs
+    
+    def _fetch_disparity(self, disp_paths):
+        disp_scene , valid_scene = [], []
+        for disp_path in disp_paths:
+            disp = frame_utils.read_gen(disp_path)
+            if isinstance(disp, tuple):
+                disp, valid = disp
+            else:
+                valid = disp < 192
+            
+            disp = np.array(disp).astype(np.float32)
+            
+            disp = torch.from_numpy(disp).unsqueeze(0)
+            valid = torch.from_numpy(valid).float()
+            
+            disp_scene.append(disp)
+            valid_scene.append(valid)
+        return disp_scene, valid_scene
+    
+    def _fetch_flow(self, flow_paths):
+        flow_list = []
+        
+        for i, flow_path in enumerate(flow_paths):
+            if i == len(flow_paths) - 1: # need N-1 optical flows 
+                break
+            flow = frame_utils.readPFM(flow_path)
+            flow =  flow[:, :, :-1] # only need first two channels: u->horizontal displacement, v->vertical displacement
+            flow = np.array(flow).astype(np.float32)
+            flow = torch.from_numpy(np.ascontiguousarray(flow)).permute(2, 0, 1)
+            flow_list.append(flow)
+            
+        return flow_list            
+    
+    def __getitem__(self, index):
+        scene = self.scenes[index]
+        left_paths, right_paths, disp_paths, flow_paths = scene['left'], scene['right'], scene['disp'], scene['flow']
+        
+        left_imgs = self._fetch_images(left_paths)
+        right_imgs = self._fetch_images(right_paths)
+        disp_scene, valid_scene = self._fetch_disparity(disp_paths)
+        flow_scene = self._fetch_flow(flow_paths)
+        
+        return {'scene_id': scene['scene_id'], 'left': left_imgs, 'right': right_imgs, 'disp': disp_scene, 'valid':valid_scene, 'flow': flow_scene}
+        
+    def __len__(self):
+        return len(self.scenes)
+        

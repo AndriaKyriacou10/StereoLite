@@ -243,7 +243,7 @@ def readDispMiddlebury(file_name):
     else:
         disp = readPFM(file_name).astype(np.float32)
         assert len(disp.shape) == 2
-        valid = disp > 0.0
+        valid = (disp > 0.0) & np.isfinite(disp)
         return disp, valid
 
 def writeFlowKITTI(filename, uv):

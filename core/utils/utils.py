@@ -1,3 +1,5 @@
+from typing import Counter
+
 import torch
 import torch.nn.functional as F
 import numpy as np
@@ -11,12 +13,15 @@ class CustomLogger:
         self.flush_freq = flush_freq
         self.global_step = 0
         self.running_sums = {}
-    
+        self.running_counts = {}
+        
     def log_batch(self, metrics_dict: dict):
         self.global_step += 1
         for key, val in metrics_dict.items():
             self.running_sums[key] = self.running_sums.get(key, 0.0) + val
-                
+            self.running_counts[key] = self.running_counts.get(key, 0) + 1
+        
+        self.global_step += 1 
         if self.global_step % self.flush_freq == 0:
             self._flush()
             
@@ -24,7 +29,8 @@ class CustomLogger:
         """Calculates averages, logs them, and empties the bucket."""
         # 1. Calculate the average for every metric in the bucket
         for key, total_sum in self.running_sums.items():
-            avg_value = total_sum / self.flush_freq
+            count = self.running_counts.get(key, 1)  # guard against div-by-zero
+            avg_value = total_sum / count
             
             # 2. Send the smooth average to the TensorBoard graph
             self.writer.add_scalar(key, avg_value, self.global_step)
@@ -34,6 +40,7 @@ class CustomLogger:
         
         # 4. Empty the bucket!
         self.running_sums = {}
+        self.running_counts = {}
 
     def close(self):
         """Always close the writer at the very end of training."""
