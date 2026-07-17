@@ -13,6 +13,8 @@ from PIL import Image
 import torch.utils.data as data
 import matplotlib.pyplot as plt
 
+import matplotlib.animation as animation
+
 def compute_epe(disp_pred, disp_gt, valid_mask):
     disp_pred = disp_pred.squeeze()   # -> (H, W), regardless of leading 1s
     disp_gt = disp_gt.squeeze()       # -> (H, W)
@@ -30,7 +32,7 @@ def compute_epe(disp_pred, disp_gt, valid_mask):
     
     return epe
 
-def compute_tepe(disp_t, disp_t1, flow):
+def compute_tepe(disp_t, disp_t1, flow, visualize=False):
     # Ensure disp_t and disp_t1 are (1, 1, H, W)
     while disp_t.dim() < 4:
         disp_t = disp_t.unsqueeze(0)
@@ -64,10 +66,17 @@ def compute_tepe(disp_t, disp_t1, flow):
     tepe_masked = tepe_map.squeeze()[valid]
     tepe_scalar = tepe_masked.mean().item() if valid.any() else float('nan')
     
+    tepe_map_masked = tepe_map.clone()
+    tepe_map_masked = tepe_map_masked.squeeze()
+    tepe_map_masked[~valid] = float('nan')
+    
+    if visualize:
+        return tepe_scalar, tepe_map_masked
+    
     return tepe_scalar
     
 @torch.no_grad()
-def validate_video_scenes(model):
+def validate_video_scenes(model, visualize = False):
     dataset = datasets.SceneFlowVideo(root_dir='./data/datasets/SceneFlow', mode='TEST', subsets=['flyingthings'])
     scene_results = []
     for scene_idx in range(len(dataset)):
@@ -93,12 +102,18 @@ def validate_video_scenes(model):
             epe_list.append(epe_t)
         
         tepe_list = []
+        tepe_maps = []
+        
         for t in range(len(disp_predictions) - 1):
             flow_t = flow_frames[t] # flow from t -> t+1 frame
             disp_t = disp_predictions[t] # disparity of scene at frame t
             disp_t1 = disp_predictions[t+1] # disparity of scene at frame t+1
             
-            tepe_t = compute_tepe(disp_t, disp_t1, flow_t)
+            if visualize:
+                tepe_t, tepe_map = compute_tepe(disp_t, disp_t1, flow_t, visualize)
+                tepe_maps.append(tepe_map)
+            else:
+                tepe_t = compute_tepe(disp_t, disp_t1, flow_t, visualize)
             tepe_list.append(tepe_t)
         
         scene_results.append({
@@ -108,6 +123,12 @@ def validate_video_scenes(model):
             'spatial_epe_mean': float(np.nanmean(epe_list)) if not all(np.isnan(epe_list)) else None,
             'temporal_epe_mean': float(np.mean(tepe_list)) if tepe_list else None,
         })
+        
+        if visualize:
+            save_path = f'./visualize_video/{scene_id}_tepe.gif'
+            os.makedirs(os.path.dirname(save_path), exist_ok=True)
+            animate_tepe(tepe_maps, save_path=save_path)
+            logging.info(f"Saved TEPE animation for scene {scene_id} at {save_path}")
 
     
     scene_means = [s['spatial_epe_mean'] for s in scene_results]
@@ -128,7 +149,23 @@ def validate_video_scenes(model):
     print(f"Temporal EPE (pooled): {overall_temporal_epe_pooled:.4f}")
 
     return {'per_scene': scene_results, 'spatial_epe': overall_spatial_epe_pooled, 'temporal_epe': overall_temporal_epe_pooled}
-            
+
+def animate_tepe(tepe_maps, save_path, vmax=None,):
+    fig, ax = plt.subplots(figsize=(8, 5))
+    vmax = vmax or np.nanpercentile(np.stack([m.numpy() for m in tepe_maps]), 99)
+    im = ax.imshow(tepe_maps[0].numpy(), cmap='inferno', vmin=0, vmax=vmax)
+    plt.colorbar(im, ax=ax, label='TEPE (px)')
+    ax.axis('off')
+
+    def update(i):
+        im.set_data(tepe_maps[i].numpy())
+        ax.set_title(f"TEPE map, frame {i}→{i+1}")
+        return [im]
+
+    ani = animation.FuncAnimation(fig, update, frames=len(tepe_maps), interval=200, blit=False)
+    ani.save(save_path, writer='pillow', fps=5)
+    plt.close(fig)
+    
 def test():
     H, W = 20, 30
     disp_t = torch.rand(1, 1, H, W) * 50
@@ -162,6 +199,7 @@ def test():
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--ckpt', help="restore checkpoint", default='./checkpoints/LiteAnyStereo.pth')
+    parser.add_argument('--visualize', action='store_true', help="visualize results")
     args = parser.parse_args()
     
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -187,4 +225,4 @@ if __name__ == "__main__":
     # scene = dataset[0]
     # print(scene['scene_id'], len(scene['left']), len(scene['flow']))
     
-    validate_video_scenes(model)
+    validate_video_scenes(model, visualize = args.visualize)
