@@ -26,6 +26,8 @@ def compute_epe(disp_pred, disp_gt, valid_mask):
     
     abs_epe = torch.abs(disp_pred_valid.float() - disp_gt_valid.float())
     epe = torch.mean(abs_epe).item()
+    
+    
     return epe
 
 def compute_tepe(disp_t, disp_t1, flow):
@@ -86,6 +88,8 @@ def validate_video_scenes(model):
             disp_predictions.append(disp_pred)
             
             epe_t =  compute_epe(disp_pred, disp_gt_frames[t], valid_frames[t])
+            if np.isnan(epe_t):
+                logging.warning(f"Scene {scene_idx} - Frame:{t} : no valid pixels. EPE is NaN")
             epe_list.append(epe_t)
         
         tepe_list = []
@@ -101,15 +105,16 @@ def validate_video_scenes(model):
             'scene_id': scene_id,
             'spatial_epes': epe_list,
             'temporal_epes': tepe_list,
-            'spatial_epe_mean': float(np.mean(epe_list)),
+            'spatial_epe_mean': float(np.nanmean(epe_list)) if not all(np.isnan(epe_list)) else None,
             'temporal_epe_mean': float(np.mean(tepe_list)) if tepe_list else None,
         })
+
     
     scene_means = [s['spatial_epe_mean'] for s in scene_results]
     overall_spatial_epe_mom = float(np.mean(scene_means))        # mean of means
 
     all_spatial = [e for s in scene_results for e in s['spatial_epes']]
-    overall_spatial_epe_pooled = float(np.mean(all_spatial))     # pooled
+    overall_spatial_epe_pooled = float(np.nanmean(all_spatial)) if not all(np.isnan(epe_list)) else None    # pooled
     
     scene_tepe = [s['temporal_epe_mean'] for s in scene_results if s['temporal_epe_mean'] is not None]
     overall_temporal_epe_mom = float(np.mean(scene_tepe))
@@ -177,8 +182,9 @@ if __name__ == "__main__":
     model.to(device)
     model.eval()
     
-    dataset = datasets.SceneFlowVideo(root_dir='./data/datasets/SceneFlow', mode='TEST', subsets=['flyingthings'])
-    scene = dataset[0]
-    print(scene['scene_id'], len(scene['left']), len(scene['flow']))
+    # dataset = datasets.SceneFlowVideo(root_dir='./data/datasets/SceneFlow', mode='TEST', subsets=['flyingthings'])
+    # print(f"Loaded {len(dataset)} video scenes for evaluation.")
+    # scene = dataset[0]
+    # print(scene['scene_id'], len(scene['left']), len(scene['flow']))
     
-    #validate_video_scenes(model)
+    validate_video_scenes(model)

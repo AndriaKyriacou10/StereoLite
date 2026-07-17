@@ -3,7 +3,7 @@ import logging
 from sympy import to_cnf
 import torch
 import numpy as np
-from core.liteanystereo import CustomLiteAnyStereo
+from core.liteanystereo import CustomLiteAnyStereo, original_LAS
 from core.training_datasets import ETH3D, fetch_testing_dataloader, Middlebury
 from core.utils.utils import InputPadder
 from PIL import Image
@@ -12,7 +12,7 @@ from PIL import Image
 def validate_eth3d(model, cost_volume = False):
     model.eval()
     
-    val_dataset = ETH3D(condition = 'test', return_occ = True)
+    val_dataset = ETH3D(condition = 'test', return_occ = True, train_frac=0.0)
     out_list, epe_list = [], []
     
     for idx in range(len(val_dataset)):
@@ -24,8 +24,12 @@ def validate_eth3d(model, cost_volume = False):
         
         padder = InputPadder(img1.shape, divis_by=32)
         img1, img2 = padder.pad(img1, img2)
-                
-        disp_pred = model(img1, img2, test_mode = True, compute_cost_volume = cost_volume)
+        
+        if isinstance(model, CustomLiteAnyStereo):
+            disp_pred = model(img1, img2, test_mode = True, compute_cost_volume = cost_volume)
+        else:
+            disp_pred = model(img1, img2, test_mode = True)
+            
         disp_pred = padder.unpad(disp_pred).squeeze().cpu()
         
         assert disp_pred.shape == disp_gt.squeeze().shape
@@ -78,7 +82,11 @@ def validate_middlebury(model, split='MiddEval3', resolution='F', cost_volume = 
         padder = InputPadder(img1.shape, divis_by=32)
         img1, img2 = padder.pad(img1, img2)
         
-        disp_pred = model(img1, img2, test_mode = True, compute_cost_volume = cost_volume)
+        if isinstance(model, CustomLiteAnyStereo):
+            disp_pred = model(img1, img2, test_mode = True, compute_cost_volume = cost_volume)
+        else:
+            disp_pred = model(img1, img2, test_mode = True)
+        
         disp_pred = padder.unpad(disp_pred).squeeze().cpu()
         
         epe_map = torch.abs(disp_pred - disp_gt.squeeze())
@@ -117,18 +125,29 @@ if __name__ == '__main__':
     parser.add_argument('--ckpt', help='Restore Checkpoint', default='./checkpoints/phase2_best_model.pth')
     parser.add_argument('--dataset', help='dataset for evaluation', choices=['eth3d'] +[f"middlebury_{s}" for s in 'FHQ'])
     parser.add_argument('--cost_volume', action='store_true', help='Compute cost volume during inference')
+    parser.add_argument('--model', choices=['Custom', 'Original'], default='Custom', help='Model type to use for evaluation')
     args = parser.parse_args()
     
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
-    model = CustomLiteAnyStereo()
+    if args.model == 'Custom':
+        model = CustomLiteAnyStereo()
+        if args.ckpt is not None:
+            logging.info("Loading checkpoint...")
+            weights = torch.load(args.ckpt, map_location=device)
+            model.load_state_dict(weights['model_state'])
+    else:
+        model = original_LAS()
+        if args.ckpt is not None:
+            assert args.ckpt.endswith(".pth")
+            logging.info("Loading checkpoint...")
+            checkpoint = torch.load(args.ckpt, map_location=device)
 
+            target_model = model.module if hasattr(model, 'module') else model
+            target_model.load_state_dict(checkpoint, strict=True)
+            logging.info(f"Done loading checkpoint")
     
-    if args.ckpt is not None:
-        logging.info("Loading checkpoint...")
-        
-        weights = torch.load(args.ckpt, map_location=device)
-        model.load_state_dict(weights['model_state'])
+
     model.to(device)
     model.eval()   
     
