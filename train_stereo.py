@@ -40,12 +40,13 @@ def sequence_loss(disparity_preds, disparity_gt, valid_mask, gamma=0.8):
         
     return total_loss
 
-def calculate_metrics(final_pred, disparity_gt, valid_mask, logger=None, is_eval=False):
+def calculate_metrics(final_pred, disparity_gt, valid_mask, logger=None, is_eval=False, padder=None):
     
-    H, W = valid_mask.shape[-2:]
-    # Crop the prediction down to match the ground truth size
-    # This slices out the padded pixels on the bottom/right
-    final_pred = final_pred[..., :H, :W]
+    if padder is not None:
+        final_pred = padder.unpad(final_pred)
+    else:
+        H, W = valid_mask.shape[-2:]
+        final_pred = final_pred[..., :H, :W]
     
     valid_pred = final_pred[valid_mask.bool().unsqueeze(1)]
     valid_gt = disparity_gt[valid_mask.bool().unsqueeze(1)]
@@ -112,7 +113,7 @@ def evaluate(model:CustomLiteAnyStereo, val_loader, device, logger=None, cv=True
                     continue
 
                 disp_pred = model(img1, img2, test_mode=True, compute_cost_volume=cv)
-                epe, bad = calculate_metrics(disp_pred, disp_gt, valid_mask, logger, True)
+                epe, bad = calculate_metrics(disp_pred, disp_gt, valid_mask, logger, True, padder=padder)
 
                 total_epe += epe
                 total_bad1 += bad['bad1']
@@ -293,19 +294,20 @@ def phase1_training(epochs):
     print("Phase 1 Training Complete!")
     
 
-def phase2_training(epochs, val_freq = 2500):
+def phase2_training(epochs, val_freq = 2500, teacher_ckpt='./checkpoints/phase1_best_model.pth'):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     save_dir = './checkpoints'
     
     os.makedirs(save_dir, exist_ok=True)
     
     train_loader = fetch_training_dataloader(is_phase_2=True)
-    val_loader = fetch_testing_dataloader()
+    
+    val_loaders = fetch_testing_dataloader(datasets=['sceneflow', 'eth3d', 'middlebury'], return_occ=False)
     
     teacher_model = CustomLiteAnyStereo().to(device)
     student_model = CustomLiteAnyStereo().to(device)
     
-    phase1_checkpoint = torch.load('./checkpoints/phase1_best_model.pth', map_location=device)
+    phase1_checkpoint = torch.load(teacher_ckpt, map_location=device)
     teacher_model.load_state_dict(phase1_checkpoint['model_state'])
     student_model.load_state_dict(phase1_checkpoint['model_state'])
     
@@ -341,10 +343,21 @@ def phase2_training(epochs, val_freq = 2500):
         print(text_string)     
         global_step += 1
         
-        val_epe, _ = evaluate(student_model, val_loader, device, logger, cv=False)
-        logger.writer.add_text("Phase 2: Validation Summary", f"Epoch {epoch + 1} | Validation EPE={val_epe:.2f}", epoch + 1)     
-        print(f"Phase 2 | Epoch {epoch+1} | Validation EPE: {val_epe:.2f}") 
+        # val_epe, _ = evaluate(student_model, val_loader, device, logger, cv=False)
+        # logger.writer.add_text("Phase 2: Validation Summary", f"Epoch {epoch + 1} | Validation EPE={val_epe:.2f}", epoch + 1)     
+        # print(f"Phase 2 | Epoch {epoch+1} | Validation EPE: {val_epe:.2f}") 
         
+        # VALIDATION
+        per_dataset_epe = {}
+        for name, val_loader in val_loaders.items():
+            val_epe, _ = evaluate(student_model, val_loader, device, logger)
+            per_dataset_epe[name] = val_epe
+            logger.writer.add_text('Validation - Dataset', f"Epoch {epoch+1}: Dataset: {name} Validation EPE = {val_epe:.4f}", epoch+1)
+        
+        val_epe = sum(per_dataset_epe.values()) / len(per_dataset_epe)
+        logger.log_batch({'val_epe': val_epe})
+        logger.writer.add_text('Phase 2: Validation Summary', f"Epoch {epoch+1}: Validation EPE = {val_epe:.4f}", epoch+1)
+        print(f"Phase 2 | Epoch {epoch+1} | Validation EPE: {val_epe:.2f}") 
     
         checkpoint = {
             'epoch': epoch,
@@ -354,7 +367,7 @@ def phase2_training(epochs, val_freq = 2500):
         }
         if val_epe < best_epe:
             best_epe = val_epe
-            torch.save(checkpoint, f"{save_dir}/phase2_epoch_{epoch+1}_best_model.pth")
+            torch.save(checkpoint, f"{save_dir}/phase2_epoch_{epoch+1}_best_model_RUN2.pth")
             print(f"--> Saved new best model: (EPE: {best_epe:.4f})")
         
         student_model.train()  # Ensure the model is back in training mode after evaluation
@@ -363,15 +376,17 @@ def phase2_training(epochs, val_freq = 2500):
     print("Phase 2 Training Complete!")
     
     
-def main(epochs):
+def main(epochs, teacher_ckpt=None):
     print("Starting Phase 1 Training...")
     phase1_training(epochs)
     # print('Staring Phase 2 Training...')
-    # phase2_training(epochs)
+    # phase2_training(epochs, teacher_ckpt=teacher_ckpt)
     print("Training Complete!")
     
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train LiteAnyStereo Model")
     parser.add_argument('--epochs', type=int, default=100, help='Number of epochs for training')
+    parser.add_argument('--teacher_ckpt', type=str, default='./checkpoints/phase1_best_model.pth', help='Path to the teacher model checkpoint for Phase 2 training')
     epochs = parser.parse_args().epochs
-    main(epochs)
+    teacher_ckpt = parser.parse_args().teacher_ckpt
+    main(epochs, teacher_ckpt)
