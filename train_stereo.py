@@ -287,7 +287,7 @@ def phase1_training(epochs):
         
         if val_epe < best_epe:
             best_epe = val_epe
-            torch.save({'model_state': model.state_dict()}, f"{save_dir}/phase1_best_model_RUN2.pth")
+            torch.save({'model_state': model.state_dict()}, f"{save_dir}/phase1_best_model_RUN2_{current_time}.pth")
             print(f"--> Saved new best model: (EPE: {best_epe:.4f})")
     
     logger.close()  
@@ -300,7 +300,7 @@ def phase2_training(epochs, val_freq = 2500, teacher_ckpt='./checkpoints/phase1_
     
     os.makedirs(save_dir, exist_ok=True)
     
-    train_loader = fetch_training_dataloader(is_phase_2=True)
+    train_loader = fetch_training_dataloader(datasets=['sceneflow', 'eth3d', 'middlebury'], is_phase_2=True)
     
     val_loaders = fetch_testing_dataloader(datasets=['sceneflow', 'eth3d', 'middlebury'], return_occ=False)
     
@@ -376,17 +376,20 @@ def phase2_training(epochs, val_freq = 2500, teacher_ckpt='./checkpoints/phase1_
     print("Phase 2 Training Complete!")
     
     
-def main(epochs, teacher_ckpt=None):
-    print("Starting Phase 1 Training...")
-    phase1_training(epochs)
-    # print('Staring Phase 2 Training...')
-    # phase2_training(epochs, teacher_ckpt=teacher_ckpt)
+def main(epochs, teacher_ckpt=None, phase=1):
+    if phase == 1:
+        print("Starting Phase 1 Training...")
+        phase1_training(epochs)
+    elif phase == 2:
+        print('Staring Phase 2 Training...')
+        phase2_training(epochs, teacher_ckpt=teacher_ckpt)
     print("Training Complete!")
     
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train LiteAnyStereo Model")
     parser.add_argument('--epochs', type=int, default=100, help='Number of epochs for training')
     parser.add_argument('--teacher_ckpt', type=str, default='./checkpoints/phase1_best_model.pth', help='Path to the teacher model checkpoint for Phase 2 training')
+    parser.add_argument('--phase', type=int, default=1, choices=[1, 2], help='Phase of training: 1 for Phase 1, 2 for Phase 2')
     epochs = parser.parse_args().epochs
     teacher_ckpt = parser.parse_args().teacher_ckpt
-    main(epochs, teacher_ckpt)
+    main(epochs, teacher_ckpt, parser.parse_args().phase)
