@@ -20,8 +20,7 @@ class CustomLogger:
         for key, val in metrics_dict.items():
             self.running_sums[key] = self.running_sums.get(key, 0.0) + val
             self.running_counts[key] = self.running_counts.get(key, 0) + 1
-        
-        self.global_step += 1 
+         
         if self.global_step % self.flush_freq == 0:
             self._flush()
             

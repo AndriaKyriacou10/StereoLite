@@ -11,3 +11,5 @@ checkpoints_inter
 bidastabilizer_integration/third_party/SEA-RAFT/demo-frames/
 bidastabilizer_integration/third_party/SEA-RAFT/config/
 bidastabilizer_integration/third_party/RAFT/demo-frames/
+bidastabilizer_integration/third_party/SEA-RAFT/models/
+
