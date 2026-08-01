@@ -73,34 +73,6 @@ def evaluate(model:CustomLiteAnyStereo, val_loader, device, logger=None, cv=True
     total_epe = total_bad1 = total_bad2 = total_bad3 = 0.0
     n_batches = 0
     with torch.no_grad():
-    #     for batch_idx, data in enumerate(val_loader):
-    #         img1, img2, _, _, disp_gt, valid_mask = data
-            
-    #         img1 = img1.to(device)
-    #         img2 = img2.to(device)
-    #         disp_gt = disp_gt.to(device)
-    #         valid_mask = valid_mask.to(device)
-            
-    #         padder = InputPadder(img1.shape, divis_by=32)
-    #         img1, img2 = padder.pad(img1, img2)
-            
-    #         if not valid_mask.any(): 
-    #             continue
-    #         disp_pred = model(img1, img2, test_mode = True, compute_cost_volume = cv)
-    #         epe, bad = calculate_metrics(disp_pred, disp_gt, valid_mask, logger, True)
-            
-    #         total_epe += epe
-    #         total_bad1 += bad['bad1']
-    #         total_bad2 += bad['bad2']
-    #         total_bad3 += bad['bad3']
-                
-    # avg_epe = total_epe / len(val_loader)
-    # avg_bad1 = total_bad1 / len(val_loader)
-    # avg_bad2 = total_bad2 / len(val_loader)
-    # avg_bad3 = total_bad3 / len(val_loader)
-    
-    # return avg_epe, {'bad1':avg_bad1, 'bad2':avg_bad2, 'bad3': avg_bad3}
-    
         for data in val_loader:
                 img1, img2, _, _, disp_gt, valid_mask = data
                 img1, img2 = img1.to(device), img2.to(device)
@@ -155,6 +127,10 @@ def train_one_epoch_phase1(model:CustomLiteAnyStereo, optimizer, scheduler, data
         final_pred = disp_preds[-1].detach() # Detach so it doesn't drain VRAM
         epe, bad_metrics = calculate_metrics(final_pred, disp_gt, valid_mask)
         
+        w = model.context_net.model.conv1.weight.data
+        w_left_norm = w[:, :3].norm().item()
+        w_right_norm = w[:, 3:].norm().item()
+        
         if logger:
             current_metrics = {
                 'loss': loss.item(),
@@ -162,7 +138,11 @@ def train_one_epoch_phase1(model:CustomLiteAnyStereo, optimizer, scheduler, data
                 'bad_1': bad_metrics['bad1'],
                 'bad_2': bad_metrics['bad2'],
                 'bad_3': bad_metrics['bad3'],
-                'learning_rate': scheduler.get_last_lr()[0]
+                'learning_rate': scheduler.get_last_lr()[0],
+                'ctxnet_w_left_norm': w_left_norm,
+                'ctxnet_w_right_norm': w_right_norm,
+                'w_ratio': w_right_norm / w_left_norm
+                        
             }
             
             logger.log_batch(current_metrics)
@@ -172,7 +152,7 @@ def train_one_epoch_phase1(model:CustomLiteAnyStereo, optimizer, scheduler, data
             
     return total_epoch_loss / len(dataloader)
 
-def train_one_epoch_phase2(teacher_model, student_model, optimizer, scheduler, dataloader, device, scaler, logger=None):
+def train_one_epoch_phase2(teacher_model:CustomLiteAnyStereo, student_model:CustomLiteAnyStereo, optimizer, scheduler, dataloader, device, scaler, logger=None):
     student_model.train()
     
     epoch_loss = 0.0
@@ -212,6 +192,11 @@ def train_one_epoch_phase2(teacher_model, student_model, optimizer, scheduler, d
         # Calculate Metrics + Log
         epe, bad_metrics = calculate_metrics(student_preds[-1].detach(), disp_gt, valid_mask)
         
+        # Context Network Weights
+        w = student_model.context_net.model.conv1.weight.data
+        w_left_norm = w[:, :3].norm().item()
+        w_right_norm = w[:, 3:].norm().item()
+        
         if logger:
             current_metrics = {
                 'loss': loss.item(),
@@ -219,7 +204,11 @@ def train_one_epoch_phase2(teacher_model, student_model, optimizer, scheduler, d
                 'bad_1': bad_metrics['bad1'],
                 'bad_2': bad_metrics['bad2'],
                 'bad_3': bad_metrics['bad3'],
-                'learning_rate': scheduler.get_last_lr()[0]
+                'learning_rate': scheduler.get_last_lr()[0],
+                'ctxnet_w_left_norm': w_left_norm,
+                'ctxnet_w_right_norm': w_right_norm,
+                'w_ratio': w_right_norm / w_left_norm
+                
             }
             logger.log_batch(current_metrics)
             text_string =  f"Phase 2 | Step {logger.global_step} | Loss: {loss.item():.4f} | EPE: {epe:.4f} | Bad-1: {bad_metrics['bad1']:.2f}% | Bad-2: {bad_metrics['bad2']:.2f}% | Bad-3: {bad_metrics['bad3']:.2f}% | LR: {scheduler.get_last_lr()[0]:.6f}"
@@ -228,10 +217,14 @@ def train_one_epoch_phase2(teacher_model, student_model, optimizer, scheduler, d
 
 def phase1_training(epochs):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    
+    # Best EPE Model Checkpoint Directory
     save_dir = './checkpoints'
-
     os.makedirs(save_dir, exist_ok=True)
 
+    # Inrermediate Checkpoints Directory
+    save_inter = 'checkpoints_inter'
+    os.makedirs(save_inter, exist_ok=True)
     
     # Load Dataset
     print("Loading Dataset...")
@@ -241,12 +234,19 @@ def phase1_training(epochs):
     # Load Model
     model = CustomLiteAnyStereo().to(device)
     
+    w = model.context_net.model.conv1.weight.data
+    w_left_norm = w[:, :3].norm().item()
+    w_right_norm = w[:, 3:].norm().item()
+            
     total_steps = epochs * len(train_loader)
     optimizer, scheduler = fetch_optimizer(model, learning_rate=0.0002, total_steps=total_steps)
     
     print("Initializing TensorBoard Logger...")
     current_time = datetime.now().strftime('%b%d_%H-%M-%S')
     logger = CustomLogger(log_dir=f"./runs/phase1_training_{current_time}", flush_freq=100)
+    
+    logger.log_batch({'ctxnet_w_left_norm': w_left_norm, 'ctxnet_w_right_norm': w_right_norm})
+    
     
     print('Starting Training Loop...')
     scaler = torch.amp.GradScaler('cuda')
@@ -282,8 +282,8 @@ def phase1_training(epochs):
             'scheduler_state': scheduler.state_dict()
         }
         
-        # if epoch % 5 == 0 or epoch == epochs - 1:
-        #     torch.save(checkpoint, f"{save_dir}/phase1_epoch_{epoch+1}.pth")
+        if epoch % 5 == 0:
+            torch.save(checkpoint, f"{save_inter}/phase1_epoch_{epoch+1}_full.pth")
         
         if val_epe < best_epe:
             best_epe = val_epe
@@ -311,6 +311,8 @@ def phase2_training(epochs, val_freq = 2500, teacher_ckpt='./checkpoints/phase1_
     teacher_model.load_state_dict(phase1_checkpoint['model_state'])
     student_model.load_state_dict(phase1_checkpoint['model_state'])
     
+    
+    
     # FREEZE Teacher Model
     teacher_model.eval()
     for param in teacher_model.parameters():
@@ -323,6 +325,10 @@ def phase2_training(epochs, val_freq = 2500, teacher_ckpt='./checkpoints/phase1_
     print("Initializing TensorBoard Logger...")
     current_time = datetime.now().strftime('%b%d_%H-%M-%S')
     logger = CustomLogger(log_dir=f"./runs/phase2_training_{current_time}", flush_freq=100)
+    
+    w = student_model.context_net.model.conv1.weight.data
+    
+    logger.log_batch({'ctxnet_w_left_norm': w[:, :3].norm().item(), 'ctxnet_w_right_norm': w[:, 3:].norm().item()})
     
     scaler = torch.amp.GradScaler('cuda')
     
@@ -350,7 +356,7 @@ def phase2_training(epochs, val_freq = 2500, teacher_ckpt='./checkpoints/phase1_
         # VALIDATION
         per_dataset_epe = {}
         for name, val_loader in val_loaders.items():
-            val_epe, _ = evaluate(student_model, val_loader, device, logger)
+            val_epe, _ = evaluate(student_model, val_loader, device, logger, cv=False)
             per_dataset_epe[name] = val_epe
             logger.writer.add_text('Validation - Dataset', f"Epoch {epoch+1}: Dataset: {name} Validation EPE = {val_epe:.4f}", epoch+1)
         
@@ -367,7 +373,7 @@ def phase2_training(epochs, val_freq = 2500, teacher_ckpt='./checkpoints/phase1_
         }
         if val_epe < best_epe:
             best_epe = val_epe
-            torch.save(checkpoint, f"{save_dir}/phase2_epoch_{epoch+1}_best_model_RUN2.pth")
+            torch.save(checkpoint, f"{save_dir}/phase2_epoch_{epoch+1}_best_model_RUN2_{current_time}.pth")
             print(f"--> Saved new best model: (EPE: {best_epe:.4f})")
         
         student_model.train()  # Ensure the model is back in training mode after evaluation
@@ -385,6 +391,110 @@ def main(epochs, teacher_ckpt=None, phase=1):
         phase2_training(epochs, teacher_ckpt=teacher_ckpt)
     print("Training Complete!")
     
+
+    
+
+def test_lr(teacher_ckpt):  
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    train_loader = fetch_training_dataloader(is_phase_2=True, datasets=['sceneflow', 'eth3d', 'middlebury'])
+    
+    teacher_model = CustomLiteAnyStereo().to(device)
+    student_model = CustomLiteAnyStereo().to(device)
+    
+    optimizer = torch.optim.AdamW(student_model.parameters(), lr=0.00001)
+        
+    teacher_checkpoint = torch.load(teacher_ckpt, map_location=device)
+    teacher_model.load_state_dict(teacher_checkpoint['model_state'])
+    
+    scaler = torch.amp.GradScaler('cuda')
+    
+    # FREEZE Teacher Model
+    teacher_model.eval()
+    for param in teacher_model.parameters():
+        param.requires_grad = False
+    
+    student_ckpt = './checkpoints/phase2_best_model_RUN2_contextnet.pth'
+    student_checkpoint = torch.load(student_ckpt, map_location=device)
+    student_model.load_state_dict(student_checkpoint['model_state'])
+    optimizer.load_state_dict(student_checkpoint['optimizer_state'])
+    
+    for g in optimizer.param_groups:
+        g['lr'] = 1e-5
+    
+    print("Initializing TensorBoard Logger...")
+    current_time = datetime.now().strftime('%b%d_%H-%M-%S')
+    logger = CustomLogger(log_dir=f"./runs/finetune_phase2{current_time}", flush_freq=100)
+    
+    w = student_model.context_net.model.conv1.weight.data
+    
+    logger.log_batch({'ctxnet_w_left_norm': w[:, :3].norm().item(), 'ctxnet_w_right_norm': w[:, 3:].norm().item()})
+    
+    
+    student_model.train()
+    for epoch in range(51, 62, 1):
+        epoch_loss = 0.0
+        for idx, data in enumerate(train_loader):
+            clean_img1, clean_img2, aug_img1, aug_img2, disp_gt, valid_mask = data
+            clean_img1 = clean_img1.to(device)
+            clean_img2 = clean_img2.to(device)
+            aug_img1 = aug_img1.to(device)
+            aug_img2 = aug_img2.to(device)
+            disp_gt = disp_gt.to(device)
+            valid_mask = valid_mask.to(device)
+            
+            optimizer.zero_grad()
+            
+            # TEACHER
+            with torch.no_grad():
+                with torch.autocast(device_type=device.type):
+                    teacher_preds = teacher_model(clean_img1, clean_img2, test_mode=False, compute_cost_volume=True)
+                    teacher_final_pred = teacher_preds[-1].detach()  # Detach to save VRAM
+
+            # STUDENT
+            with torch.autocast(device_type=device.type):
+                student_preds = student_model(aug_img1, aug_img2, test_mode=False, compute_cost_volume=False)
+                loss = sequence_loss(student_preds, teacher_final_pred, valid_mask)
+            
+            epoch_loss += loss.item()
+            scaler.scale(loss).backward()
+            scaler.step(optimizer)
+            scaler.update()
+        
+            # Calculate Metrics + Log
+            epe, bad_metrics = calculate_metrics(student_preds[-1].detach(), disp_gt, valid_mask)
+            
+            # Context Network Weights
+            w = student_model.context_net.model.conv1.weight.data
+            w_left_norm = w[:, :3].norm().item()
+            w_right_norm = w[:, 3:].norm().item()
+            
+            if logger:
+                current_metrics = {
+                    'loss': loss.item(),
+                    'epe': epe,
+                    'bad_1': bad_metrics['bad1'],
+                    'bad_2': bad_metrics['bad2'],
+                    'bad_3': bad_metrics['bad3'],
+                    'learning_rate': optimizer.param_groups[0]['lr'],
+                    'ctxnet_w_left_norm': w_left_norm,
+                    'ctxnet_w_right_norm': w_right_norm,
+                    'w_ratio': w_right_norm / w_left_norm
+                    
+                }
+                logger.log_batch(current_metrics)
+                text_string =  f"Finetune | Step {logger.global_step} | Loss: {loss.item():.4f} | EPE: {epe:.4f} | Bad-1: {bad_metrics['bad1']:.2f}% | Bad-2: {bad_metrics['bad2']:.2f}% | Bad-3: {bad_metrics['bad3']:.2f}% | LR: {optimizer.param_groups[0]['lr']:.6f}"
+                logger.writer.add_text('Training Metrics', text_string, logger.global_step)
+        avg_loss = epoch_loss / len(train_loader)
+        text_string = f"Epoch {epoch+1} | Average Loss: {avg_loss:.4f}"
+        logger.writer.add_text('Finetune: Epoch Summary', text_string, epoch+1)
+        
+        print(text_string)                    
+        
+        
+        
+        
+        
+        
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train LiteAnyStereo Model")
     parser.add_argument('--epochs', type=int, default=100, help='Number of epochs for training')
@@ -392,4 +502,6 @@ if __name__ == "__main__":
     parser.add_argument('--phase', type=int, default=1, choices=[1, 2], help='Phase of training: 1 for Phase 1, 2 for Phase 2')
     epochs = parser.parse_args().epochs
     teacher_ckpt = parser.parse_args().teacher_ckpt
-    main(epochs, teacher_ckpt, parser.parse_args().phase)
+    # main(epochs, teacher_ckpt, parser.parse_args().phase)
+    
+    test_lr(teacher_ckpt)  # Call the test_lr function after training is complete

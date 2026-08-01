@@ -12,7 +12,7 @@ from PIL import Image
 def validate_eth3d(model, cost_volume = False):
     model.eval()
     
-    val_dataset = ETH3D(condition = 'test', return_occ = True, train_frac=0.0)
+    val_dataset = ETH3D(condition = 'test', return_occ = True, train_frac=0.5)
     out_list, epe_list = [], []
     
     for idx in range(len(val_dataset)):

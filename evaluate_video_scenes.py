@@ -85,18 +85,12 @@ def validate_video_scenes(model, visualize = False, animate_scene_ids=None, out_
     dataset = datasets.SceneFlowVideo(root_dir='./data/datasets/SceneFlow', mode='TEST', subsets=['flyingthings'])
     scene_results = []
     
-    if visualize:
-        logging.info(f"Visualizing results for scenes: {animate_scene_ids}")
-        len_data = len(animate_scene_ids)
-    else:
-        len_data = len(dataset)
-
-    for scene_idx in range(len_data):
+    for scene_idx in range(len(dataset)):
         scene_dict = dataset[scene_idx]
         scene_id, left_imgs, right_imgs, disp_gt_frames, valid_frames, flow_frames = scene_dict['scene_id'], scene_dict['left'], scene_dict['right'], scene_dict['disp'], scene_dict['valid'], scene_dict['flow'] 
 
-        print(scene_id)
-        break
+        print(f"{scene_id}")
+        
         disp_predictions = []
         epe_list = []
         for t in range(len(left_imgs)):
@@ -138,13 +132,14 @@ def validate_video_scenes(model, visualize = False, animate_scene_ids=None, out_
             'temporal_epe_mean': float(np.mean(tepe_list)) if tepe_list else None,
         })
         
-        if visualize:
-            if scene_id in animate_scene_ids:
-                animate_tepe(
-                    disp_predictions, flow_frames,
-                    save_path=os.path.join(out_dir, f"{scene_id}_tepe.gif"),
-                    scene_id=scene_id
-                )
+        if visualize and (scene_id in animate_scene_ids):
+            save_path = os.path.join(out_dir, f"{scene_id}_tepe_TEST.gif")
+            os.makedirs(os.path.dirname(save_path), exist_ok=True)
+            animate_tepe(
+                disp_predictions, flow_frames,
+                save_path=save_path,
+                scene_id=scene_id
+            )
 
     
     scene_means = [s['spatial_epe_mean'] for s in scene_results if s['spatial_epe_mean'] is not None]

@@ -51,6 +51,9 @@ def get_prediction(model, device, dataset, idx, compute_cost_volume=False):
     disp_pred_np = disp_pred.detach().cpu().squeeze().numpy()
     error_np = error.detach().cpu().squeeze().numpy()
     
+    negative = np.sum(disp_pred_np < 0)
+    print(f"Negative Disparities: {negative} | Total Pixels: {disp_pred_np.size}")
+    
     print(f"Min Disp:{disp_pred.min()} | Max Disp:{disp_pred.max()} | Percenile: {np.percentile(disp_pred_np, [5, 25, 50, 75, 95])}")
     return left_img_np, disp_pred_np, error_np
     
@@ -58,7 +61,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description='Inference script for CustomLiteAnyStereo')
     parser.add_argument('--ckpt', type=str, default='./checkpoints/phase2_best_model.pth', help='Path to the model weights')
     parser.add_argument('--num_samples', type=int, default=10, help='Number of random samples to process')
-    parser.add_argument('--out_dir', type=str, default='./inference_results', help='Directory to save inference results')
+    parser.add_argument('--out_dir', type=str, default='./inference_images', help='Directory to save inference results')
     parser.add_argument('--compute_cost_volume', action='store_true',
                          help='Run with cost volume (teacher-equivalent) instead of the lite student path')
     parser.add_argument('--seed', type=int, default=42,
@@ -84,7 +87,7 @@ if __name__ == '__main__':
         val_dataset = SceneFlowDataset(augmentor=None, is_phase_2=False, mode='TEST', subsets=['flyingthings'])
         out_dir = f"{args.out_dir}/sceneflow"
     elif args.dataset == 'eth3d':
-        val_dataset = ETH3D()
+        val_dataset = ETH3D(condition='test', return_occ=True)
         out_dir = f"{args.out_dir}/eth3d"
     elif args.dataset == 'middlebury':
         val_dataset = Middlebury(split='MiddEval3', resolution='F')
@@ -104,7 +107,10 @@ if __name__ == '__main__':
         left_img, disp_pred, error_map = get_prediction(model, device, val_dataset, idx, compute_cost_volume=args.compute_cost_volume)
         
         plt.figure(figsize=(18, 5)) 
-
+        # plt.imshow(disp_pred < 0, cmap='gray')
+        # save_path = f"{out_dir}/negative_disparity_map_{idx}.png"
+        # plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        # plt.close()
         plt.subplot(1, 3, 1)
         plt.title(f"Left RGB (Index: {idx})")
         plt.imshow(left_img)
