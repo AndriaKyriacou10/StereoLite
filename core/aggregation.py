@@ -49,8 +49,8 @@ class Aggregation2D(nn.Module):
         if self.left_att:
             x_4 = self.att4(x_4, features_left[0])
 
-        x_8 = self.conv1(x_4)
-        x_8 = self.conv2(x_8)
+        x_8 = self.conv1(x_4) # strided conv: 1/4 -> 1/8, channels double
+        x_8 = self.conv2(x_8) # refine with ConvNeXt blocks @ 1/8
         if self.left_att:
             x_8 = self.att8(x_8, features_left[1])
 
@@ -59,8 +59,9 @@ class Aggregation2D(nn.Module):
         if self.left_att:
             x_16 = self.att16(x_16, features_left[2])
 
-        x_8 = F.relu(self.upconv1(x_16) + self.redir2(x_8), inplace=True)
-        x_4 = F.relu(self.upconv2(x_8) + self.redir1(x), inplace=True)
+        # DECODER — upsample twice, with skip connections
+        x_8 = F.relu(self.upconv1(x_16) + self.redir2(x_8), inplace=True) # upsample 1/16->1/8, add skip
+        x_4 = F.relu(self.upconv2(x_8) + self.redir1(x), inplace=True) # upsample 1/8->1/4, add skip
 
         return x_4
 
@@ -71,7 +72,7 @@ class LayerNorm(nn.Module):
     shape (batch_size, height, width, channels) while channels_first corresponds to inputs
     with shape (batch_size, channels, height, width).
     """
-
+    # Normalize each feature vextor across channel dimesnion to zero mean and unit variance
     def __init__(self, normalized_shape, eps=1e-6, data_format="channels_last"):
         super().__init__()
         self.weight = nn.Parameter(torch.ones(normalized_shape))
@@ -84,20 +85,25 @@ class LayerNorm(nn.Module):
 
     def forward(self, x):
         if self.data_format == "channels_last":
+            # Use built-in PyTorch layer_norm for channels last
             return F.layer_norm(x, self.normalized_shape, self.weight, self.bias, self.eps)
         elif self.data_format == "channels_first":
-            u = x.mean(1, keepdim=True)
-            s = (x - u).pow(2).mean(1, keepdim=True)
-            x = (x - u) / torch.sqrt(s + self.eps)
+            u = x.mean(1, keepdim=True) # mean across channel dimension
+            s = (x - u).pow(2).mean(1, keepdim=True) # variance across channel dimension
+            x = (x - u) / torch.sqrt(s + self.eps) # normalize to zero mean and unit variance
             x = self.weight[:, None, None] * x + self.bias[:, None, None]
             return x
 
 
 class ConvNeXtBlock(nn.Module):
+    #Spatial mix through depthwise convs
+    
+    #Channel mix through pointwise (1x1) convs
+    
     def __init__(self, dim, layer_scale_init_value=1e-6):
         super().__init__()
-        self.dwconv = nn.Conv2d(dim, dim, kernel_size=7, padding=3, groups=dim) # depthwise conv
-        self.norm = LayerNorm(dim, eps=1e-6)
+        self.dwconv = nn.Conv2d(dim, dim, kernel_size=7, padding=3, groups=dim) # depthwise conv (each channel convolved independently - far fewer parameters)
+        self.norm = LayerNorm(dim, eps=1e-6) # LayerNorm - channels last
         self.pwconv1 = nn.Linear(dim, 4 * dim)  # pointwise/1x1 convs, implemented with linear layers
         self.act = nn.GELU()
         self.pwconv2 = nn.Linear(4 * dim, dim)
@@ -107,16 +113,16 @@ class ConvNeXtBlock(nn.Module):
     def forward(self, x):
         input = x
         x = self.dwconv(x)
-        x = x.permute(0, 2, 3, 1)
+        x = x.permute(0, 2, 3, 1) # change to channels last
         x = self.norm(x)
-        x = self.pwconv1(x)
+        x = self.pwconv1(x) # C -> 4C
         x = self.act(x)
-        x = self.pwconv2(x)
+        x = self.pwconv2(x) #  4C -> C
         if self.gamma is not None:
             x = self.gamma * x
-        x = x.permute(0, 3, 1, 2)
+        x = x.permute(0, 3, 1, 2) # back to [B, C, H, W]
 
-        return x + input
+        return x + input # residual connection
 
 
 class AttentionModule2D(nn.Module):

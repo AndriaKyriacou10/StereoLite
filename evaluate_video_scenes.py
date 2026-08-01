@@ -62,27 +62,41 @@ def compute_tepe(disp_t, disp_t1, flow, visualize=False):
     # out-of-bounds mask
     valid = (sample_x >= 0) & (sample_x <= W - 1) & (sample_y >= 0) & (sample_y <= H - 1)
 
-    tepe_map = torch.abs(disp_t - warped_disp_t1)
-    tepe_masked = tepe_map.squeeze()[valid]
+    tepe_map = torch.abs(disp_t - warped_disp_t1).squeeze()
+    tepe_masked = tepe_map[valid]
     tepe_scalar = tepe_masked.mean().item() if valid.any() else float('nan')
     
-    tepe_map_masked = tepe_map.clone()
-    tepe_map_masked = tepe_map_masked.squeeze()
-    tepe_map_masked[~valid] = float('nan')
-    
     if visualize:
-        return tepe_scalar, tepe_map_masked
+        tepe_map_vis = tepe_map.clone()
+        tepe_map_vis[~valid] = float('nan')
+        
+        warped_vis = warped_disp_t1.squeeze().clone()
+        warped_vis[~valid] = float('nan')
+        
+        return tepe_scalar, {'disp_t': disp_t.squeeze(), 'warped_disp_t1': warped_vis, 'tepe_map': tepe_map_vis, 'valid': valid}
     
     return tepe_scalar
     
 @torch.no_grad()
-def validate_video_scenes(model, visualize = False):
+def validate_video_scenes(model, visualize = False, animate_scene_ids=None, out_dir='./visualize_video'):
+    animate_scene_ids = animate_scene_ids or []
+    os.makedirs(out_dir, exist_ok=True)
+    
     dataset = datasets.SceneFlowVideo(root_dir='./data/datasets/SceneFlow', mode='TEST', subsets=['flyingthings'])
     scene_results = []
-    for scene_idx in range(len(dataset)):
+    
+    if visualize:
+        logging.info(f"Visualizing results for scenes: {animate_scene_ids}")
+        len_data = len(animate_scene_ids)
+    else:
+        len_data = len(dataset)
+
+    for scene_idx in range(len_data):
         scene_dict = dataset[scene_idx]
         scene_id, left_imgs, right_imgs, disp_gt_frames, valid_frames, flow_frames = scene_dict['scene_id'], scene_dict['left'], scene_dict['right'], scene_dict['disp'], scene_dict['valid'], scene_dict['flow'] 
 
+        print(scene_id)
+        break
         disp_predictions = []
         epe_list = []
         for t in range(len(left_imgs)):
@@ -125,17 +139,19 @@ def validate_video_scenes(model, visualize = False):
         })
         
         if visualize:
-            save_path = f'./visualize_video/{scene_id}_tepe.gif'
-            os.makedirs(os.path.dirname(save_path), exist_ok=True)
-            animate_tepe(tepe_maps, save_path=save_path)
-            logging.info(f"Saved TEPE animation for scene {scene_id} at {save_path}")
+            if scene_id in animate_scene_ids:
+                animate_tepe(
+                    disp_predictions, flow_frames,
+                    save_path=os.path.join(out_dir, f"{scene_id}_tepe.gif"),
+                    scene_id=scene_id
+                )
 
     
-    scene_means = [s['spatial_epe_mean'] for s in scene_results]
-    overall_spatial_epe_mom = float(np.mean(scene_means))        # mean of means
+    scene_means = [s['spatial_epe_mean'] for s in scene_results if s['spatial_epe_mean'] is not None]
+    overall_spatial_epe_mom = float(np.mean(scene_means)) if scene_means else None       # mean of means
 
     all_spatial = [e for s in scene_results for e in s['spatial_epes']]
-    overall_spatial_epe_pooled = float(np.nanmean(all_spatial)) if not all(np.isnan(epe_list)) else None    # pooled
+    overall_spatial_epe_pooled = float(np.nanmean(all_spatial)) if not all(np.isnan(all_spatial)) else None    # pooled
     
     scene_tepe = [s['temporal_epe_mean'] for s in scene_results if s['temporal_epe_mean'] is not None]
     overall_temporal_epe_mom = float(np.mean(scene_tepe))
@@ -150,21 +166,61 @@ def validate_video_scenes(model, visualize = False):
 
     return {'per_scene': scene_results, 'spatial_epe': overall_spatial_epe_pooled, 'temporal_epe': overall_temporal_epe_pooled}
 
-def animate_tepe(tepe_maps, save_path, vmax=None,):
-    fig, ax = plt.subplots(figsize=(8, 5))
-    vmax = vmax or np.nanpercentile(np.stack([m.numpy() for m in tepe_maps]), 99)
-    im = ax.imshow(tepe_maps[0].numpy(), cmap='inferno', vmin=0, vmax=vmax)
-    plt.colorbar(im, ax=ax, label='TEPE (px)')
-    ax.axis('off')
+def animate_tepe(disp_predictions, flow_frames, save_path, scene_id="", fps=5):
+    """
+    disp_predictions: list of (H, W) or (1,1,H,W) tensors, per-frame disparity predictions for one scene
+    flow_frames: list of (2, H, W) tensors, optical flow t -> t+1 (length = len(disp_predictions) - 1)
+    """
+    n_pairs = len(disp_predictions) - 1
+    assert n_pairs == len(flow_frames), (n_pairs, len(flow_frames))
+
+    # Precompute all frame-pair data up front so we can fix color scales
+    disp_t_list, warped_list, tepe_list = [], [], []
+    for t in range(n_pairs):
+        disp_t = disp_predictions[t]
+        disp_t1 = disp_predictions[t + 1]
+        flow_t = flow_frames[t]
+
+        _, maps = compute_tepe(disp_t, disp_t1, flow_t, visualize=True)
+        disp_t_list.append(maps['disp_t'].numpy())
+        warped_list.append(maps['warped_disp_t1'].numpy())
+        tepe_list.append(maps['tepe_map'].numpy())
+
+    # Fixed scales across the whole scene — critical, don't let matplotlib auto-scale per frame
+    disp_stack = np.stack(disp_t_list + warped_list)
+    disp_vmin = np.nanpercentile(disp_stack, 1)
+    disp_vmax = np.nanpercentile(disp_stack, 99)
+
+    tepe_stack = np.stack(tepe_list)
+    tepe_vmax = np.nanpercentile(tepe_stack, 99)
+
+    fig, axes = plt.subplots(1, 3, figsize=(15, 5))
+    titles = ["Disparity @ t", "Disparity @ t+1 (warped to t)", "TEPE = |diff|"]
+    for ax, title in zip(axes, titles):
+        ax.set_title(title)
+        ax.axis('off')
+
+    im0 = axes[0].imshow(disp_t_list[0], cmap='magma', vmin=disp_vmin, vmax=disp_vmax)
+    im1 = axes[1].imshow(warped_list[0], cmap='magma', vmin=disp_vmin, vmax=disp_vmax)
+    im2 = axes[2].imshow(tepe_list[0], cmap='inferno', vmin=0, vmax=tepe_vmax)
+
+    fig.colorbar(im0, ax=axes[0], fraction=0.046, pad=0.04)
+    fig.colorbar(im1, ax=axes[1], fraction=0.046, pad=0.04)
+    fig.colorbar(im2, ax=axes[2], fraction=0.046, pad=0.04)
+
+    suptitle = fig.suptitle(f"Scene {scene_id} | frame 0→1")
 
     def update(i):
-        im.set_data(tepe_maps[i].numpy())
-        ax.set_title(f"TEPE map, frame {i}→{i+1}")
-        return [im]
+        im0.set_data(disp_t_list[i])
+        im1.set_data(warped_list[i])
+        im2.set_data(tepe_list[i])
+        suptitle.set_text(f"Scene {scene_id} | frame {i}→{i+1}")
+        return [im0, im1, im2]
 
-    ani = animation.FuncAnimation(fig, update, frames=len(tepe_maps), interval=200, blit=False)
-    ani.save(save_path, writer='pillow', fps=5)
+    ani = animation.FuncAnimation(fig, update, frames=n_pairs, interval=1000 / fps, blit=False)
+    ani.save(save_path, writer='pillow', fps=fps)
     plt.close(fig)
+    print(f"Saved animation to {save_path}")
     
 def test():
     H, W = 20, 30
@@ -225,4 +281,4 @@ if __name__ == "__main__":
     # scene = dataset[0]
     # print(scene['scene_id'], len(scene['left']), len(scene['flow']))
     
-    validate_video_scenes(model, visualize = args.visualize)
+    validate_video_scenes(model, visualize = args.visualize, animate_scene_ids=['A/0006', 'A/0122', 'A/0143', 'B/0000', 'C/0082'])

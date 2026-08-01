@@ -14,7 +14,13 @@ class CustomLiteAnyStereo(nn.Module):
         self.fnet = FeatureNet()
        
         self.context_net = ContextNet()
-        self.conv_gru = ConvGRU(input_channels=1, hidden_channels=128, kernel_size=3)
+        
+        disp_channels = 1
+        cv_channels = 192 // 4  # max_disp // 4 = 192 // 4 = 48
+        context_channels = 128
+        input_channels = disp_channels + cv_channels + context_channels
+                
+        self.conv_gru = ConvGRU(input_channels=input_channels, hidden_channels=128, kernel_size=3)
         self.disp_head = nn.Sequential(nn.Conv2d(128, 256, kernel_size=3, stride=1, padding=1),
                                        nn.ReLU(inplace=True),
                                        nn.Conv2d(256, 1, kernel_size=3, stride=1, padding=1)
@@ -65,11 +71,12 @@ class CustomLiteAnyStereo(nn.Module):
         else:
             cv = torch.zeros((left.shape[0], max_disp // 4, left.shape[2] // 4, left.shape[3] // 4), device=left.device, dtype=left.dtype)
         
+        # === REFINEMENT NETWORK === #
         iterations = 8
         disp = init_disp
         hidden_state = context_features
         for iters in range(iterations):
-            input = torch.cat((disp, cv), dim=1)
+            input = torch.cat((disp, cv, context_features), dim=1) # keep the context features present in EVERY iteration, not only init
             hidden_state = self.conv_gru(hidden_state, input)
             delta_disp = self.disp_head(hidden_state)
             
@@ -82,7 +89,7 @@ class CustomLiteAnyStereo(nn.Module):
                 disparity_predictions.append(disp_up)
 
         if test_mode:
-            return disparity_predictions[-1]
+            return torch.clamp(disparity_predictions[-1], min=0)
         else:
             return disparity_predictions
 
@@ -111,6 +118,8 @@ class original_LAS(nn.Module):
             BasicConv2d(24, 24, kernel_size=3, stride=1, padding=1,
                         norm_layer=nn.InstanceNorm2d, act_layer=nn.ReLU))
 
+        # Input: Raw-unormalized left RGB image. 
+        # Inject raw pixel detail (edges, colour boundaries) that got lost in the 1/4 resolution
         self.stem_2 = nn.Sequential(
             BasicConv2d(3, 16, kernel_size=3, stride=2, padding=1,
                         norm_layer=nn.BatchNorm2d, act_layer=nn.LeakyReLU),
@@ -139,13 +148,13 @@ class original_LAS(nn.Module):
 
         features_left = self.fnet(left)
         features_right = self.fnet(right)
-        cost_volume = build_correlation_volume(features_left[0], features_right[0], max_disp // 4)
+        cost_volume = build_correlation_volume(features_left[0], features_right[0], max_disp // 4) # [B, D, H, W] where D = max_disp // 4
 
         cv_3d = self.cost_stem_3d(cost_volume[:,None]).squeeze(1)
 
-        cv = self.cost_agg_2d(cv_3d, features_left)
+        cv = self.cost_agg_2d(cv_3d, features_left) # Cost aggregated Cost Volume
 
-        prob = F.softmax(cv, dim=1)
+        prob = F.softmax(cv, dim=1) # dim=1 is disparity dimension
         disp = disparity_regression(prob, max_disp // 4)
 
         xspx = self.refine_1(features_left[0])

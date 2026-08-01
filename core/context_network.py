@@ -21,6 +21,10 @@ class ContextNet(nn.Module):
         nn.init.zeros_(self.model.conv1.weight)
         self.model.conv1.weight.data[:, :3, :, :] = old_weights  # Copy weights for left image
         
+        # Initialize right image weights with a subset of the left image weights
+        scale_right = 0.3
+        self.model.conv1.weight.data[:, 3:, :, :] = old_weights * scale_right
+        
         # Output Channels = 1 (Initial Disparity) + 128 (Context Features / Hidden State) = 129
         self.out_conv = nn.Conv2d(64, 129, (1,1), stride=(1,1), padding=(0,0))
     

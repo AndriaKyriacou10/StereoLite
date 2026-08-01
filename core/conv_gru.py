@@ -10,7 +10,8 @@ class ConvGRU(nn.Module):
             Hidden State: Context Features
         """
         super().__init__()
-        self.input_channels = input_channels + 48
+        # self.input_channels = input_channels + 48
+        self.input_channels = input_channels
         self.hidden_channels = hidden_channels
         self.kernel_size = kernel_size
         

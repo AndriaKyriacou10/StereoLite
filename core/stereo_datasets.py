@@ -232,9 +232,12 @@ class SceneFlowVideo():
         self.mode = mode.upper()
         self.scenes = []
         
+        if 'flyingthings' in subsets:
+            self._load_flying()
+        
     def _load_flying(self):
         search_pattern = os.path.join(self.root_dir, 'FlyingThings3D', f'frames_cleanpass/{self.mode}/*/*/left/*.png')
-        left_imgs = sorted(glob.glob(search_pattern))
+        left_imgs = sorted(glob(search_pattern))
         
         self.left_img_paths.extend(left_imgs)
         # self.right_img_paths.extend([p.replace('left', 'right') for p in self.left_img_paths])
@@ -242,8 +245,8 @@ class SceneFlowVideo():
         
         scenes_dict = defaultdict(list)
         for left_path in self.left_img_paths:
-            scene_id = os.path.dirname(os.path.dirname(left_path)).split(f'{self.mode}/')[-1]
-            frame_num = os.path.basename(left_path).split('.')[0]
+            scene_id = os.path.dirname(os.path.dirname(left_path)).split(f'{self.mode}/')[-1] #e.g A/0000
+            frame_num = os.path.basename(left_path).split('.')[0] # e.g 0006
             
             
             right_path = left_path.replace('left', 'right')
@@ -280,7 +283,7 @@ class SceneFlowVideo():
     def _load_driving(self):
         if self.mode == 'TRAIN':
             search_pattern = os.path.join(self.root_dir, 'Driving', 'frames_cleanpass', '**/*.png')
-            images = sorted(glob.glob(search_pattern, recursive=True))
+            images = sorted(glob(search_pattern, recursive=True))
             
             left_images = [p for p in images if '/left/' in p]
             self.left_img_paths.extend(left_images)
@@ -334,6 +337,7 @@ class SceneFlowVideo():
         return flow_list            
     
     def __getitem__(self, index):
+        """Return one full scene with all frames and corresponding disparity and flow maps"""
         scene = self.scenes[index]
         left_paths, right_paths, disp_paths, flow_paths = scene['left'], scene['right'], scene['disp'], scene['flow']
         

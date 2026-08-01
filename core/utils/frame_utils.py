@@ -239,7 +239,8 @@ def readDispMiddlebury(file_name):
         assert exists(nocc_pix)
         nocc_pix = imageio.imread(nocc_pix) == 255
         assert np.any(nocc_pix)
-        return disp, nocc_pix
+        valid = nocc_pix & (disp < 192) & (disp >= 0)
+        return disp, valid
     else:
         disp = readPFM(file_name).astype(np.float32)
         assert len(disp.shape) == 2

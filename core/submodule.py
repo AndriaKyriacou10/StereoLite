@@ -196,7 +196,7 @@ def context_upsample(depth_low, up_weights):
     b, c, h, w = depth_low.shape
         
     depth_unfold = F.unfold(depth_low.reshape(b,c,h,w),3,1,1).reshape(b,-1,h,w)
-    depth_unfold = F.interpolate(depth_unfold,(h*4,w*4),mode='nearest').reshape(b,9,h*4,w*4)
+    depth_unfold = F.interpolate(depth_unfold,(h*4,w*4),mode='nearest').reshape(b,9,h*4,w*4) # Low-res grid to full resolution using nearest neighbour
 
     depth = torch.sum(depth_unfold*up_weights, dim=1, keepdim=True)
         
