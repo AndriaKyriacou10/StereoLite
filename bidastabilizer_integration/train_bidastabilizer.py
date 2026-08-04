@@ -56,31 +56,36 @@ def fetch_optimizer(args, model, model_stabilizer, Flow_model):
     return optimizer, scheduler
 
 
-def forward_batch(batch, model, model_stabilizer, Flow_Model, args):
+def forward_batch(batch, model, model_stabilizer, Flow_Model, args, total_steps=None, skipped_frame_log=None):
     output = {}
     disparities_list = []
     b, T, *_ = batch["img"][:, :, 0].shape
-    for i in range(T):
-        # if args.name == "raftstereo_stabilizer":
-        #     _, flow_predictions = model(batch["img"][:, :, 0][:, i], batch["img"][:, :, 1][:, i],
-        #                                 iters=args.train_iters, test_mode=True)
-        # elif args.name == "igevstereo_stabilizer":
-        #     flow_predictions = model(batch["img"][:, :, 0][:, i], batch["img"][:, :, 1][:, i],
-        #                                 iters=args.train_iters, test_mode=True)
-        # else:
-        #     raise ValueError("Other model is not implemented")
-        
+    for i in range(T):        
         # ==== LAS MODEL INFERENCE ====
         flow_predictions,_ = model(batch["img"][:, :, 0][:, i], batch["img"][:, :, 1][:, i], max_disp=192, test_mode=False)
         disparities_list.append(flow_predictions)
     disparities = torch.stack(disparities_list, dim=0) # T B C H W
 
+
+    print(f"LAS1 output: min={disparities.min().item()}, max={disparities.max().item()}")
+    print(f"GT disp:     min={batch['disp'].min().item()}, max={batch['disp'].max().item()}")
+
     num_traj = len(batch["disp"][0]) # number of frames
     # Input: B T C H W    Output: T B C H W
-    disparities_stb = model_stabilizer(batch["img"][:, :, 0], disparities.permute(1,0,2,3,4)) # B T C H W
+    
+    # Disparity from LAS model is positive, but BiDAStabilizer expects nagative disparity value and also GT is negative
+    disparities_stb = model_stabilizer(batch["img"][:, :, 0], -disparities.permute(1,0,2,3,4)) # B T C H W 
 
     for i in range(num_traj):
         #eq.14 from paper 
+        valid_i = batch['valid_disp'][:, i, 0]
+        skipped_frames = []
+        if valid_i.sum() == 0:
+            skipped_frames.append(i)
+            if skipped_frame_log is not None:
+                skipped_frame_log.append({'step': total_steps, 'frame_index': i})
+            # Prevent NaN values
+            continue
         seq_loss, metrics = sequence_loss(
             disparities_stb[None][:, i], batch["disp"][:, i, 0], batch["valid_disp"][:, i, 0]
         )
@@ -93,6 +98,7 @@ def forward_batch(batch, model, model_stabilizer, Flow_Model, args):
         "predictions": torch.cat(
             [disparities[i] for i in range(num_traj)], dim=1).detach(),
     }
+    output["skipped_frames"] = skipped_frames
     return output
 
 def train(args):
@@ -119,6 +125,30 @@ def train(args):
         
     train_loader = datasets.fetch_dataloader(args)
     
+    # if args.skip_frames_check:
+    #     from collections import defaultdict
+    #     skip_count = 0
+    #     total_checks = 0
+    #     per_frame_skips = defaultdict(int)
+
+    #     for step, batch in enumerate(tqdm(train_loader)):
+    #         if step >= 1000:
+    #             break
+    #         num_traj = batch["disp"].shape[1]
+    #         for i in range(num_traj):
+    #             valid_i = batch["valid_disp"][:, i, 0]
+    #             total_checks += 1
+    #             if valid_i.sum() == 0:
+    #                 skip_count += 1
+    #                 per_frame_skips[i] += 1
+
+    #     print(f"\n{skip_count} / {total_checks} frame-checks were empty "
+    #         f"({100 * skip_count / total_checks:.2f}%)")
+    #     print(f"Per-frame-position breakdown: {dict(sorted(per_frame_skips.items()))}")
+
+    #     import sys
+    #     sys.exit(0)
+
     logging.info(f"Train loader size:  {len(train_loader)}")
 
     optimizer, scheduler = fetch_optimizer(args, model, model_stabilizer, raft)
@@ -177,6 +207,7 @@ def train(args):
     epoch = -1
     
     start_time = time.time()
+    skipped_frame_log = []
     while should_keep_training:
         epoch += 1
         for i_batch, batch in enumerate(tqdm(train_loader)):
@@ -188,7 +219,8 @@ def train(args):
                 batch[k] = v.cuda()
 
             assert model_stabilizer.training
-            output = forward_batch(batch, model, model_stabilizer, raft, args)
+            output = forward_batch(batch, model, model_stabilizer, raft, args, total_steps, skipped_frame_log)
+
             loss = 0
             logger.update()
             for k, v in output.items():
@@ -220,7 +252,11 @@ def train(args):
             scaler.update()
             total_steps += 1
 
-            
+            if total_steps % Logger.SUM_FREQ == Logger.SUM_FREQ - 1:
+                print(f"Skipped frames so far: {len(skipped_frame_log)} / {total_steps} steps")
+                with open(f"{args.ckpt_path}/skipped_frames.json", "w") as f:
+                    json.dump(skipped_frame_log, f, indent=2)
+    
             if (i_batch >= len(train_loader) - 1) or (total_steps == 1 and args.validate_at_start):
                 ckpt_iter = "0" * (6 - len(str(total_steps))) + str(total_steps)
                 save_path = Path(
@@ -236,8 +272,10 @@ def train(args):
 
                 logging.info(f"Saving file {save_path}")
                 torch.save(save_dict, save_path)
+                
+                with open(f"{args.ckpt_path}/skipped_frames.json", "w") as f:
+                    json.dump(skipped_frame_log, f, indent=2)
 
-            
             if total_steps > args.num_steps:
                 should_keep_training = False
                 break
@@ -348,6 +386,12 @@ if __name__ == "__main__":
         action="store_true",
         help="don't simulate imperfect rectification",
     )
+    parser.add_argument(
+        "--skip_frames_check", 
+        action="store_true",
+        help="Get empty valid-mask frames without re-training, then exit"
+    )
+    
     args = parser.parse_args()
 
     Path(args.ckpt_path).mkdir(exist_ok=True, parents=True)
@@ -360,174 +404,3 @@ if __name__ == "__main__":
     )
 
     train(args)
-
-
-
-
-# class Lite(LightningLite):
-#     def run(self, args):
-#         self.seed_everything(0)
-#         evaluator = Evaluator()
-
-#         eval_vis_cfg = {
-#             "visualize_interval": 0,  # Use 0 for no visualization
-#             "exp_dir": args.ckpt_path,
-#         }
-#         # eval_vis_cfg = DefaultMunch.fromDict(eval_vis_cfg, object())
-#         evaluator.setup_visualization(eval_vis_cfg)
-
-#         # if args.name == "raftstereo_stabilizer":
-#         #     from bidavideo.models.raft_stereo_model import RAFTStereoModel
-#         #     model = RAFTStereoModel().model
-#         # elif args.name == "igevstereo_stabilizer":
-#         #     from bidavideo.models.igev_stereo_model import IGEVStereoModel
-#         #     model = IGEVStereoModel().model
-#         # else:
-#         #     raise ValueError("Other model is not implemented")
-        
-#         # Add LAS model 
-
-#         from bidastabilizer_integration.models.raft_model import RAFTModel
-#         raft = RAFTModel()
-
-#         from bidastabilizer_integration.models.bidastabilizer import BiDAStabilizer
-#         model_stabilizer = BiDAStabilizer()
-
-#         with open(args.ckpt_path + "/meta.json", "w") as file:
-#             json.dump(vars(args), file, sort_keys=True, indent=4)
-
-#         model.cuda()
-#         raft.cuda()
-#         model_stabilizer.cuda()
-
-#         train_loader = datasets.fetch_dataloader(args)
-#         train_loader = self.setup_dataloaders(train_loader, move_to_device=False)
-
-#         logging.info(f"Train loader size:  {len(train_loader)}")
-
-#         optimizer, scheduler = fetch_optimizer(args, model, model_stabilizer, raft)
-
-#         print("Parameter Count:", {count_parameters(model_stabilizer)})
-#         logging.info(f"Parameter Count:  {count_parameters(model_stabilizer)}")
-#         total_steps = 0
-#         logger = Logger(model_stabilizer, scheduler, args.ckpt_path)
-
-#         if args.restore_ckpt is not None:
-#             assert args.restore_ckpt.endswith(".pth") or args.restore_ckpt.endswith(
-#                 ".pt"
-#             )
-#             logging.info("Loading checkpoint...")
-#             print("Loading checkpoint", args.restore_ckpt)
-
-#             strict = True
-
-#             state_dict = self.load(args.restore_ckpt)
-#             if "model" in state_dict:
-#                 state_dict = state_dict["model"]
-#             if list(state_dict.keys())[0].startswith("module."):
-#                 state_dict = {
-#                     k.replace("module.", ""): v for k, v in state_dict.items()
-#                 }
-#             model.load_state_dict(state_dict, strict=strict)
-
-#             logging.info(f"Done loading checkpoint")
-
-#         if args.restore_stabilizer_ckpt is not None:
-#             assert args.restore_stabilizer_ckpt.endswith(".pth") or args.restore_stabilizer_ckpt.endswith(
-#                 ".pt"
-#             )
-#             logging.info("Loading stabilizer checkpoint...")
-#             print("load Stabilizer parameters", args.restore_stabilizer_ckpt)
-#             strict = True
-
-#             state_dict = self.load(args.restore_stabilizer_ckpt)
-#             if "model" in state_dict:
-#                 state_dict = state_dict["model"]
-#             if list(state_dict.keys())[0].startswith("module."):
-#                 state_dict = {
-#                     k.replace("module.", ""): v for k, v in state_dict.items()
-#                 }
-#             model_stabilizer.load_state_dict(state_dict, strict=strict)
-#             logging.info(f"Done loading stabilizer checkpoint")
-
-#         model = self.to_device(model)
-#         raft = self.to_device(raft)
-
-#         model_stabilizer, optimizer = self.setup(model_stabilizer, optimizer, move_to_device=False)
-#         model_stabilizer.cuda()
-#         model_stabilizer.train()
-
-#         scaler = torch.amp.GradScaler('cuda', enabled=args.mixed_precision)
-
-
-#         should_keep_training = True
-#         global_batch_num = 0
-#         epoch = -1
-#         while should_keep_training:
-#             epoch += 1
-
-#             for i_batch, batch in enumerate(tqdm(train_loader)):
-#                 optimizer.zero_grad()
-#                 if batch is None:
-#                     print("batch is None")
-#                     continue
-#                 for k, v in batch.items():
-#                     batch[k] = v.cuda()
-
-#                 assert model_stabilizer.training
-#                 output = forward_batch(batch, model, model_stabilizer, raft, args)
-#                 loss = 0
-#                 logger.update()
-#                 for k, v in output.items():
-#                     if "loss" in v:
-#                         loss += v["loss"]
-#                         logger.writer.add_scalar(
-#                             f"live_{k}_loss", v["loss"].item(), total_steps
-#                         )
-#                     if "metrics" in v:
-#                         logger.push(v["metrics"], k)
-
-#                 if self.global_rank == 0:
-#                     if len(output) > 1:
-#                         logger.writer.add_scalar(
-#                             f"live_total_loss", loss.item(), total_steps
-#                         )
-#                     logger.writer.add_scalar(
-#                         f"learning_rate", optimizer.param_groups[0]["lr"], total_steps
-#                     )
-#                     global_batch_num += 1
-#                 self.barrier()
-#                 self.backward(scaler.scale(loss))
-#                 scaler.unscale_(optimizer)
-#                 torch.nn.utils.clip_grad_norm_(model_stabilizer.parameters(), 1.0)
-
-#                 scaler.step(optimizer)
-#                 if total_steps < args.num_steps:
-#                     scheduler.step()
-#                 scaler.update()
-#                 total_steps += 1
-
-#                 if self.global_rank == 0:
-#                     if (i_batch >= len(train_loader) - 1) or (total_steps == 1 and args.validate_at_start):
-#                         ckpt_iter = "0" * (6 - len(str(total_steps))) + str(total_steps)
-#                         save_path = Path(
-#                             f"{args.ckpt_path}/model_{args.name}_{ckpt_iter}.pth"
-#                         )
-
-#                         save_dict = {
-#                             "model": model_stabilizer.module.module.state_dict(),
-#                             "optimizer": optimizer.state_dict(),
-#                             "scheduler": scheduler.state_dict(),
-#                             "total_steps": total_steps,
-#                         }
-
-#                         logging.info(f"Saving file {save_path}")
-#                         self.save(save_dict, save_path)
-
-#                 if total_steps > args.num_steps:
-#                     should_keep_training = False
-#                     break
-
-#         logger.close()
-#         PATH = f"{args.ckpt_path}/{args.name}_final.pth"
-#         torch.save(model_stabilizer.module.module.state_dict(), PATH)

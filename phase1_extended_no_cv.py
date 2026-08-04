@@ -97,6 +97,8 @@ def phase1_extended_no_cv(ckpt, resume_ckpt):
     
     p1_model = CustomLiteAnyStereo().to(device)
     
+    total_steps = 450000
+    
     
     if resume_ckpt:
         print(f"Resuming training from checkpoint: {resume_ckpt}")
@@ -106,8 +108,11 @@ def phase1_extended_no_cv(ckpt, resume_ckpt):
     
     if resume_ckpt:
         step = checkpoint.get('step', 0)
+        best_epe = checkpoint.get('best_epe', float('inf'))
+        print(f"Resuming from step: {step}")
     else:
         step = 0
+        best_epe = float('inf')
         
     p1_model.load_state_dict(checkpoint['model_state'])
     
@@ -115,30 +120,38 @@ def phase1_extended_no_cv(ckpt, resume_ckpt):
 
     optimizer.load_state_dict(checkpoint['optimizer_state'])
     
-    for g in optimizer.param_groups:
-        g['lr'] = 1.4e-4
+    # for g in optimizer.param_groups:
+    #     g['lr'] = 1.4e-4
 
     scaler = torch.amp.GradScaler('cuda')
     
     print("Initializing TensorBoard Logger...")
     current_time = datetime.now().strftime('%b%d_%H-%M-%S')
-    logger = CustomLogger(log_dir=f'./runs/phase1_extended_{current_time}', flush_freq=100)
+    logger = CustomLogger(log_dir=f'./runs/phase1_extended_one_cycleLR_{current_time}', flush_freq=100)
 
     w = p1_model.context_net.model.conv1.weight.data
     logger.log_batch({'ctxnet_w_left_norm': w[:, :3].norm().item(), 'ctxnet_w_right_norm': w[:, 3:].norm().item()})
 
     keep_training = True
    
-    total_steps = 224000
+    # total_steps += 50000 # Extra steps for extended training until convergence
     
-    best_epe = float('inf')
+    scheduler = torch.optim.lr_scheduler.OneCycleLR(
+        optimizer, 0.0002, total_steps, pct_start=0.01, cycle_momentum=False, anneal_strategy='linear'
+    )
     
+    if resume_ckpt:
+        scheduler.load_state_dict(checkpoint['scheduler_state'])
+        scheduler.step()
+    
+    print(f"Starting Phase 1 Extended Training | Total Steps: {total_steps} | Starting Step: {step}")
+        
     save_dir = './checkpoints_extended_run'
     os.makedirs(save_dir, exist_ok=True)
     
     val_freq = len(train_loader)
     
-    def _run_validation(best_epe, model, val_loaders, device, logger, step, optimizer, save_dir, current_time):
+    def _run_validation(best_epe, model, val_loaders, device, logger, step, optimizer, save_dir, current_time, scheduler):
         per_dataset_epe = {}
         for name, val_loader in val_loaders.items():
             val_epe, _ = evaluate(model, val_loader, device, logger, cv=False)
@@ -154,6 +167,7 @@ def phase1_extended_no_cv(ckpt, resume_ckpt):
             'step': step,
             'model_state': model.state_dict(),
             'optimizer_state': optimizer.state_dict(),
+            'scheduler_state': scheduler.state_dict()
         }
         tag = 'latest'
         if val_epe < best_epe:
@@ -161,10 +175,12 @@ def phase1_extended_no_cv(ckpt, resume_ckpt):
             best_epe = val_epe
             print(f"--> Saved new best model: (EPE: {best_epe:.4f})")
         
+        checkpoint['best_epe'] = best_epe
+        
         if tag == 'latest':
-            torch.save(checkpoint, f"{save_dir}/phase1_extended_{tag}.pth")
+            torch.save(checkpoint, f"{save_dir}/phase1_extended_oneCycleLR{tag}.pth")
         else:
-            torch.save(checkpoint, f"{save_dir}/phase1_extended_{tag}_{current_time}.pth")
+            torch.save(checkpoint, f"{save_dir}/phase1_extended_{tag}_oneCycleLR{current_time}.pth")
         return val_epe, best_epe
         
     
@@ -187,6 +203,7 @@ def phase1_extended_no_cv(ckpt, resume_ckpt):
             scaler.scale(loss).backward()
             scaler.step(optimizer)
             scaler.update() 
+            scheduler.step()
 
             final_pred = disp_preds[-1].detach() # Detach so it doesn't drain VRAM
             epe, bad_metrics = calculate_metrics(final_pred, disp_gt, valid_mask)
@@ -214,12 +231,12 @@ def phase1_extended_no_cv(ckpt, resume_ckpt):
                 logger.writer.add_text('Training Metrics', text_string, logger.global_step)
 
             if step % val_freq == 0:
-                val_epe, best_epe = _run_validation(best_epe, p1_model, val_loaders, device, logger, step, optimizer, save_dir, current_time)
+                val_epe, best_epe = _run_validation(best_epe, p1_model, val_loaders, device, logger, step, optimizer, save_dir, current_time, scheduler)
             step += 1
             if step >= total_steps:
                 keep_training = False
                 break
-    val_epe, best_epe = _run_validation(best_epe, p1_model, val_loaders, device, logger, step, optimizer, save_dir, current_time)
+    val_epe, best_epe = _run_validation(best_epe, p1_model, val_loaders, device, logger, step, optimizer, save_dir, current_time, scheduler)
     logger.close()
 
 if __name__ == "__main__":
@@ -230,7 +247,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
     
     if args.resume:
-        resume_ckpt = './checkpoints_extended_run/phase1_extended_latest.pth'
+        resume_ckpt = './checkpoints_extended_run/phase1_extended_best_Jul31_23-28-23.pth'
     else:
         resume_ckpt = None
     phase1_extended_no_cv(args.ckpt, resume_ckpt)
