@@ -222,12 +222,12 @@ class DrivingStereoWeather(StereoDataset):
             self.disparity_list += [disp]
 
 class SceneFlowVideo():
-    def __init__(self, root_dir='./data/datasets/SceneFlow', mode='TRAIN', subsets=['flyingthings', 'driving', 'monkaa']):
+    def __init__(self, root_dir='./data/datasets/SceneFlow', mode='TRAIN', subsets=['flyingthings', 'driving', 'monkaa'], max_disp = None):
         self.left_img_paths = []
         self.right_img_paths = []
         self.disp_paths = []
         self.flow_paths = []
-        
+        self.max_disp = max_disp
         self.root_dir = root_dir
         self.mode = mode.upper()
         self.scenes = []
@@ -311,8 +311,11 @@ class SceneFlowVideo():
             if isinstance(disp, tuple):
                 disp, valid = disp
             else:
-                valid = disp < 192
-            
+                if self.max_disp is not None:
+                    valid = disp < self.max_disp
+                else:
+                    valid = disp > -1e6
+                
             disp = np.array(disp).astype(np.float32)
             
             disp = torch.from_numpy(disp).unsqueeze(0)
@@ -350,4 +353,221 @@ class SceneFlowVideo():
         
     def __len__(self):
         return len(self.scenes)
+
+class SintelStereoVideo():
+    """
+    Loads MPI-Sintel Stereo sequences for video evaluation.
+    Mirrors SceneFlowVideo's __getitem__ output shape.
+
+    Key differences from SceneFlowVideo to keep in mind while filling this in:
+    - Sintel's GT-labeled split is called "training" (not "test") -- see
+      the earlier discussion, "test" has no public ground truth.
+    - Each folder under {dstype}_left/ is already one scene -- no need to
+      parse/group scene_id from a flat glob like _load_flying does.
+    - Sequence length varies per scene (not fixed at 10 like FlyingThings3D).
+    """
+
+    def __init__(self, root_dir='./data/datasets/Sintel', mode='training', dstype='clean', max_disp=None):
+        self.root_dir = root_dir
+        self.mode = mode
+        self.dstype = dstype  # 'clean' or 'final'
+        self.scenes = []
+        self.max_disp = max_disp
+        self._load_sintel()
+
+    def _load_sintel(self):
+        left_root = os.path.join(self.root_dir, self.mode, f'{self.dstype}_left')
+
+        # TODO: verify this glob matches your actual downloaded structure --
+        # should return one path per scene folder, e.g. .../clean_left/alley_1
+        scene_dirs = sorted(glob(os.path.join(left_root, '*')))
+        # print(scene_dirs)
         
+        for scene_dir in scene_dirs:
+            scene_id = os.path.basename(scene_dir)
+
+            # TODO: glob + sort the frames inside this one scene folder
+            left_paths = sorted(glob(os.path.join(scene_dir, '*.png')))
+            
+            
+            # TODO: derive right_paths via .replace(), same pattern as
+            # _load_flying -- swap '{dstype}_left' for '{dstype}_right'
+            right_paths = [p.replace(f'{self.dstype}_left', f'{self.dstype}_right') for p in left_paths]
+            
+            
+            # TODO: derive disp_paths via .replace() -- swap '{dstype}_left'
+            # for 'disparities'. Don't build an occlusions path yourself --
+            # readDispSintelStereo does that internally via its own .replace()
+            disp_paths = [p.replace(f'{self.dstype}_left', 'disparities') for p in left_paths]
+            
+            
+            # TODO (optional, skip for now): derive flow_paths if you want
+            # evaluate_video_scenes.py's flow-warped TEPE to also work here.
+            # Remember flow lives under a SEPARATE root (base Sintel download,
+            # not sintel_stereo) -- this isn't a same-tree string replace.
+
+            self.scenes.append({
+                'scene_id': scene_id,
+                'left': left_paths,
+                'right': right_paths,
+                'disp': disp_paths,
+                # 'flow': [],  # placeholder -- fill in later if needed
+            })
+
+        self.scenes.sort(key=lambda s: s['scene_id'])
+
+    def _fetch_images(self, image_paths):
+        # No changes needed -- identical to SceneFlowVideo._fetch_images,
+        # since Sintel's left/right frames are plain RGB PNGs.
+        imgs = []
+        for img_path in image_paths:
+            img = frame_utils.read_gen(img_path)
+            img = np.array(img).astype(np.uint8)
+            if len(img.shape) == 2:
+                img = np.tile(img[..., None], (1, 1, 3))
+            else:
+                img = img[..., :3]
+            img = torch.from_numpy(np.ascontiguousarray(img)).permute(2, 0, 1).float()
+            imgs.append(img)
+        return imgs
+
+    def _fetch_disparity(self, disp_paths):
+        """
+        IMPORTANT: must call frame_utils.readDispSintelStereo directly here,
+        NOT frame_utils.read_gen -- read_gen just does Image.open() for .png
+        and won't decode the R/G/B-packed disparity. This is the crash we
+        talked about last message.
+        """
+        disp_scene, valid_scene = [], []
+        for disp_path in disp_paths:
+            # TODO: call the reader and convert to the same tensor shapes
+            # SceneFlowVideo._fetch_disparity produces:
+            #   disp  -> torch.from_numpy(disp).unsqueeze(0)   # (1, H, W)
+            #   valid -> torch.from_numpy(valid).float()       # (H, W)
+            disp, valid = frame_utils.readDispSintelStereo(disp_path)
+            valid = valid & (disp <= self.max_disp) if self.max_disp is not None else valid # filter out any pixels exceeding LAS1's max_disp=192
+            
+            disp = torch.from_numpy(np.array(disp).astype(np.float32)).unsqueeze(0)  
+            valid = torch.from_numpy(np.array(valid).astype(np.float32))
+            
+            disp_scene.append(disp)
+            valid_scene.append(valid)
+        return disp_scene, valid_scene
+
+    def __getitem__(self, index):
+        scene = self.scenes[index]
+        left_imgs = self._fetch_images(scene['left'])
+        right_imgs = self._fetch_images(scene['right'])
+        disp_scene, valid_scene = self._fetch_disparity(scene['disp'])
+
+        return {
+            'scene_id': scene['scene_id'],
+            'left': left_imgs,
+            'right': right_imgs,
+            'disp': disp_scene,
+            'valid': valid_scene,
+            # 'flow': [],  # TODO: wire up real flow loading if/when you need it
+        }
+
+    def __len__(self):
+        return len(self.scenes)
+
+
+
+
+
+def test_scene_flow_video():
+    dataset = SceneFlowVideo(mode='TEST', subsets=['flyingthings'])
+    print(f"Total scenes: {len(dataset)}")
+    for i in range(len(dataset)):
+        scene = dataset[i]
+        print(f"Scene {i}: {scene['scene_id']}, Frames: {len(scene['left'])}, Disparity maps: {len(scene['disp'])}, Optical flows: {len(scene['flow'])}")
+        
+def test_valid_pixels(dataset_name, dstype=" "):
+    import numpy as np
+    import matplotlib.pyplot as plt
+    import sys
+
+    if dataset_name == 'sintel':
+        dstype = 'clean'  # run this once for 'clean', once for 'final'
+        dataset = SintelStereoVideo(mode='training', dstype=dstype)
+    elif dataset_name == 'flyingthings':
+        dataset = SceneFlowVideo(mode = 'TEST', subsets=['flyingthings'])
+        all_vals = []
+        for scene in dataset.scenes:
+            for disp_path in scene['disp']:
+                disp = frame_utils.readPFM(disp_path)
+                all_vals.append(disp.flatten())
+        all_vals = np.concatenate(all_vals)
+        print(f"max disparity: {all_vals.max():.1f}")
+        print(f"% pixels > 192: {100*(all_vals > 192).mean():.2f}%")
+        sys.exit(0)
+        
+    all_valid_disps = []
+    per_scene_stats = []
+
+    for i in range(len(dataset)):
+        scene = dataset[i]
+        scene_vals = []
+        for disp, valid in zip(scene['disp'], scene['valid']):
+            disp_np = disp.squeeze(0).numpy()          # (H, W)
+            valid_np = valid.numpy().astype(bool)       # (H, W)
+            vals = disp_np[valid_np]                    # only ground-truth-valid pixels
+            scene_vals.append(vals)
+            all_valid_disps.append(vals)
+
+        scene_all = np.concatenate(scene_vals)
+        per_scene_stats.append({
+            'scene_id': scene['scene_id'],
+            'max_disp': scene_all.max(),
+            'mean_disp': scene_all.mean(),
+            'pct_over_192': 100 * (scene_all > 192).mean(),
+        })
+
+    all_valid_disps = np.concatenate(all_valid_disps)
+
+    print(f"[{dstype}] total valid pixels: {len(all_valid_disps):,}")
+    print(f"[{dstype}] max disparity: {all_valid_disps.max():.1f}")
+    print(f"[{dstype}] % of pixels with disparity > 192: {100*(all_valid_disps>192).mean():.2f}%")
+
+    per_scene_stats.sort(key=lambda s: s['pct_over_192'], reverse=True)
+    print(f"\nTop 10 scenes by %% pixels exceeding max_disp=192 [{dstype}]:")
+    for s in per_scene_stats[:10]:
+        print(f"  {s['scene_id']:15s}  max={s['max_disp']:6.1f}  mean={s['mean_disp']:5.1f}  %>192={s['pct_over_192']:5.2f}%")
+
+    plt.figure(figsize=(8, 5))
+    plt.hist(all_valid_disps, bins=100, range=(0, max(500, all_valid_disps.max())))
+    plt.axvline(192, color='red', linestyle='--', label='LAS1 max_disp=192')
+    plt.yscale('log')  # most pixels sit low; the problem tail is small and would be invisible on a linear axis
+    plt.xlabel('GT disparity (px)')
+    plt.ylabel('pixel count (log scale)')
+    plt.legend()
+    plt.title(f'{dataset_name} {dstype} — GT disparity distribution')
+    plt.savefig(f'{dataset_name}_{dstype}_disp_histogram.png', dpi=120)
+    
+def test_disp():
+    dataset = SceneFlowVideo(mode="TEST", subsets=['flyingthings'])
+    # no max_disp needed here -- .scenes just holds file paths, doesn't touch _fetch_disparity at all
+
+    n_inf, n_nan, n_total = 0, 0, 0
+    worst_scenes = []
+
+    for scene in dataset.scenes:
+        for disp_path in scene['disp']:
+            disp = frame_utils.readPFM(disp_path)
+            inf_count = np.isinf(disp).sum()
+            nan_count = np.isnan(disp).sum()
+            n_inf += inf_count
+            n_nan += nan_count
+            n_total += disp.size
+            if inf_count > 0 or nan_count > 0:
+                worst_scenes.append((scene['scene_id'], disp_path, inf_count, nan_count))
+
+    print(f"total pixels: {n_total:,}")
+    print(f"inf pixels:   {n_inf:,} ({100*n_inf/n_total:.4f}%)")
+    print(f"nan pixels:   {n_nan:,} ({100*n_nan/n_total:.4f}%)")
+    print(f"scenes affected: {len(worst_scenes)} / {len(dataset.scenes)}")    
+    
+if __name__ == "__main__":
+    # test_valid_pixels(dataset_name='flyingthings')
+    test_disp()

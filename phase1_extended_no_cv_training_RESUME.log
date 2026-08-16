@@ -1,0 +1,103 @@
+2026-08-06 18:33:15,265 INFO     [training_datasets.py:265] Training with 35846 image pairs
+2026-08-06 18:33:16,556 INFO     [_builder.py:217] Loading pretrained weights from Hugging Face hub (timm/mobilenetv2_100.ra_in1k)
+2026-08-06 18:33:16,799 INFO     [_client.py:1025] HTTP Request: HEAD https://huggingface.co/timm/mobilenetv2_100.ra_in1k/resolve/main/model.safetensors "HTTP/1.1 302 Found"
+2026-08-06 18:33:16,818 INFO     [_hub.py:233] [timm/mobilenetv2_100.ra_in1k] Safe alternative available for 'pytorch_model.bin' (as 'model.safetensors'). Loading weights using safetensors.
+2026-08-06 18:33:16,900 WARNING  [_builder.py:286] Unexpected keys (bn2.num_batches_tracked, bn2.bias, bn2.running_mean, bn2.running_var, bn2.weight, classifier.bias, classifier.weight, conv_head.weight) found while loading pretrained weights. This may be expected if model is being adapted.
+2026-08-06 18:33:18,135 INFO     [phase1_extended_no_cv.py:105] Resuming training from checkpoint: ./checkpoints_extended_run/phase1_extended_oneCycleLRlatest.pth
+2026-08-06 18:33:18,729 INFO     [phase1_extended_no_cv.py:113] Resuming from step: 246400
+2026-08-06 18:33:18,750 INFO     [phase1_extended_no_cv.py:129] Initializing TensorBoard Logger...
+2026-08-06 18:33:19,133 INFO     [phase1_extended_no_cv.py:148] Starting Phase 1 Extended Training | Total Steps: 450000 | Starting Step: 246400 | Best EPE: 9.6961
+2026-08-06 18:33:27,291 INFO     [phase1_extended_no_cv.py:235] Step 2 | Loss: 8.0996 | EPE: 1.6392 | Bad-1: 32.37% | Bad-2: 14.44% | Bad-3: 7.77% | LR: 0.000091
+2026-08-06 18:35:10,532 INFO     [phase1_extended_no_cv.py:165] Phase 1 Extended No CV | Step 246401 | Validation EPE: 14.74
+2026-08-06 18:46:25,774 INFO     [phase1_extended_no_cv.py:235] Step 4483 | Loss: 18.7405 | EPE: 3.1610 | Bad-1: 40.95% | Bad-2: 28.49% | Bad-3: 23.10% | LR: 0.000089
+2026-08-06 18:48:09,490 INFO     [phase1_extended_no_cv.py:165] Phase 1 Extended No CV | Step 250881 | Validation EPE: 13.53
+2026-08-06 18:59:44,299 INFO     [phase1_extended_no_cv.py:235] Step 8964 | Loss: 13.0352 | EPE: 2.1831 | Bad-1: 31.34% | Bad-2: 18.05% | Bad-3: 12.92% | LR: 0.000087
+2026-08-06 19:01:32,464 INFO     [phase1_extended_no_cv.py:165] Phase 1 Extended No CV | Step 255361 | Validation EPE: 14.01
+2026-08-06 19:12:51,427 INFO     [phase1_extended_no_cv.py:235] Step 13445 | Loss: 10.5060 | EPE: 1.8809 | Bad-1: 34.07% | Bad-2: 20.84% | Bad-3: 15.20% | LR: 0.000085
+2026-08-06 19:14:32,587 INFO     [phase1_extended_no_cv.py:165] Phase 1 Extended No CV | Step 259841 | Validation EPE: 13.27
+2026-08-06 19:25:32,491 INFO     [phase1_extended_no_cv.py:235] Step 17926 | Loss: 7.7492 | EPE: 1.4722 | Bad-1: 25.32% | Bad-2: 12.18% | Bad-3: 7.99% | LR: 0.000083
+2026-08-06 19:27:13,913 INFO     [phase1_extended_no_cv.py:165] Phase 1 Extended No CV | Step 264321 | Validation EPE: 10.45
+2026-08-06 19:38:39,444 INFO     [phase1_extended_no_cv.py:235] Step 22407 | Loss: 8.4775 | EPE: 1.5760 | Bad-1: 22.96% | Bad-2: 13.82% | Bad-3: 10.02% | LR: 0.000081
+2026-08-06 19:40:20,896 INFO     [phase1_extended_no_cv.py:165] Phase 1 Extended No CV | Step 268801 | Validation EPE: 13.93
+2026-08-06 19:52:02,556 INFO     [phase1_extended_no_cv.py:235] Step 26888 | Loss: 13.2962 | EPE: 2.4415 | Bad-1: 33.28% | Bad-2: 20.01% | Bad-3: 15.21% | LR: 0.000079
+2026-08-06 19:53:51,455 INFO     [phase1_extended_no_cv.py:165] Phase 1 Extended No CV | Step 273281 | Validation EPE: 10.25
+2026-08-06 20:05:18,050 INFO     [phase1_extended_no_cv.py:235] Step 31369 | Loss: 10.3583 | EPE: 1.9841 | Bad-1: 39.05% | Bad-2: 19.78% | Bad-3: 14.26% | LR: 0.000077
+2026-08-06 20:07:08,191 INFO     [phase1_extended_no_cv.py:165] Phase 1 Extended No CV | Step 277761 | Validation EPE: 14.45
+2026-08-06 20:18:19,639 INFO     [phase1_extended_no_cv.py:235] Step 35850 | Loss: 18.2537 | EPE: 3.5140 | Bad-1: 35.07% | Bad-2: 23.31% | Bad-3: 18.73% | LR: 0.000075
+2026-08-06 20:20:06,312 INFO     [phase1_extended_no_cv.py:165] Phase 1 Extended No CV | Step 282241 | Validation EPE: 10.71
+2026-08-06 20:31:26,830 INFO     [phase1_extended_no_cv.py:235] Step 40331 | Loss: 8.0698 | EPE: 1.6579 | Bad-1: 24.47% | Bad-2: 13.39% | Bad-3: 8.71% | LR: 0.000073
+2026-08-06 20:33:19,336 INFO     [phase1_extended_no_cv.py:165] Phase 1 Extended No CV | Step 286721 | Validation EPE: 10.81
+2026-08-06 20:44:38,730 INFO     [phase1_extended_no_cv.py:235] Step 44812 | Loss: 16.7856 | EPE: 3.2387 | Bad-1: 35.88% | Bad-2: 22.35% | Bad-3: 17.09% | LR: 0.000071
+2026-08-06 20:46:37,486 INFO     [phase1_extended_no_cv.py:165] Phase 1 Extended No CV | Step 291201 | Validation EPE: 12.90
+2026-08-06 21:00:29,591 INFO     [phase1_extended_no_cv.py:235] Step 49293 | Loss: 13.0155 | EPE: 2.5854 | Bad-1: 28.61% | Bad-2: 15.16% | Bad-3: 11.26% | LR: 0.000069
+2026-08-06 21:02:11,859 INFO     [phase1_extended_no_cv.py:165] Phase 1 Extended No CV | Step 295681 | Validation EPE: 10.78
+2026-08-06 21:13:32,771 INFO     [phase1_extended_no_cv.py:235] Step 53774 | Loss: 9.5581 | EPE: 1.8558 | Bad-1: 25.73% | Bad-2: 15.48% | Bad-3: 11.60% | LR: 0.000067
+2026-08-06 21:15:23,028 INFO     [phase1_extended_no_cv.py:165] Phase 1 Extended No CV | Step 300161 | Validation EPE: 11.67
+2026-08-06 21:26:57,287 INFO     [phase1_extended_no_cv.py:235] Step 58255 | Loss: 10.4434 | EPE: 1.9192 | Bad-1: 38.49% | Bad-2: 17.05% | Bad-3: 11.33% | LR: 0.000065
+2026-08-06 21:28:39,494 INFO     [phase1_extended_no_cv.py:165] Phase 1 Extended No CV | Step 304641 | Validation EPE: 12.59
+2026-08-06 21:42:33,192 INFO     [phase1_extended_no_cv.py:235] Step 62736 | Loss: 6.2149 | EPE: 1.0725 | Bad-1: 20.50% | Bad-2: 7.59% | Bad-3: 4.32% | LR: 0.000063
+2026-08-06 21:44:25,330 INFO     [phase1_extended_no_cv.py:165] Phase 1 Extended No CV | Step 309121 | Validation EPE: 11.28
+2026-08-06 21:55:02,784 INFO     [phase1_extended_no_cv.py:235] Step 67217 | Loss: 7.5932 | EPE: 1.3321 | Bad-1: 27.23% | Bad-2: 14.66% | Bad-3: 9.33% | LR: 0.000061
+2026-08-06 21:56:51,511 INFO     [phase1_extended_no_cv.py:165] Phase 1 Extended No CV | Step 313601 | Validation EPE: 14.80
+2026-08-06 22:08:08,284 INFO     [phase1_extended_no_cv.py:235] Step 71698 | Loss: 16.6791 | EPE: 3.0504 | Bad-1: 37.95% | Bad-2: 25.42% | Bad-3: 19.30% | LR: 0.000059
+2026-08-06 22:09:56,742 INFO     [phase1_extended_no_cv.py:165] Phase 1 Extended No CV | Step 318081 | Validation EPE: 12.30
+2026-08-06 22:20:33,403 INFO     [phase1_extended_no_cv.py:235] Step 76179 | Loss: 19.5985 | EPE: 3.1990 | Bad-1: 44.78% | Bad-2: 27.82% | Bad-3: 20.06% | LR: 0.000057
+2026-08-06 22:22:13,825 INFO     [phase1_extended_no_cv.py:165] Phase 1 Extended No CV | Step 322561 | Validation EPE: 10.28
+2026-08-06 22:32:54,306 INFO     [phase1_extended_no_cv.py:235] Step 80660 | Loss: 17.8365 | EPE: 3.8250 | Bad-1: 33.88% | Bad-2: 22.88% | Bad-3: 17.96% | LR: 0.000055
+2026-08-06 22:34:36,797 INFO     [phase1_extended_no_cv.py:165] Phase 1 Extended No CV | Step 327041 | Validation EPE: 10.29
+2026-08-06 22:45:24,491 INFO     [phase1_extended_no_cv.py:235] Step 85141 | Loss: 10.1339 | EPE: 1.9945 | Bad-1: 24.44% | Bad-2: 14.81% | Bad-3: 11.06% | LR: 0.000053
+2026-08-06 22:47:05,051 INFO     [phase1_extended_no_cv.py:165] Phase 1 Extended No CV | Step 331521 | Validation EPE: 15.06
+2026-08-06 22:57:27,915 INFO     [phase1_extended_no_cv.py:235] Step 89622 | Loss: 12.5807 | EPE: 2.1213 | Bad-1: 38.28% | Bad-2: 22.46% | Bad-3: 15.97% | LR: 0.000051
+2026-08-06 22:59:18,967 INFO     [phase1_extended_no_cv.py:165] Phase 1 Extended No CV | Step 336001 | Validation EPE: 9.57
+2026-08-06 22:59:18,973 INFO     [phase1_extended_no_cv.py:177] --> Saved new best model: (EPE: 9.5675)
+2026-08-06 23:10:03,655 INFO     [phase1_extended_no_cv.py:235] Step 94103 | Loss: 14.5473 | EPE: 2.4926 | Bad-1: 37.09% | Bad-2: 23.23% | Bad-3: 16.95% | LR: 0.000049
+2026-08-06 23:11:48,731 INFO     [phase1_extended_no_cv.py:165] Phase 1 Extended No CV | Step 340481 | Validation EPE: 15.27
+2026-08-06 23:22:39,841 INFO     [phase1_extended_no_cv.py:235] Step 98584 | Loss: 6.3184 | EPE: 1.1231 | Bad-1: 22.49% | Bad-2: 9.77% | Bad-3: 5.75% | LR: 0.000047
+2026-08-06 23:24:26,480 INFO     [phase1_extended_no_cv.py:165] Phase 1 Extended No CV | Step 344961 | Validation EPE: 16.62
+2026-08-06 23:35:37,861 INFO     [phase1_extended_no_cv.py:235] Step 103065 | Loss: 20.1666 | EPE: 4.0012 | Bad-1: 40.13% | Bad-2: 26.31% | Bad-3: 20.45% | LR: 0.000045
+2026-08-06 23:37:24,767 INFO     [phase1_extended_no_cv.py:165] Phase 1 Extended No CV | Step 349441 | Validation EPE: 11.81
+2026-08-06 23:47:58,255 INFO     [phase1_extended_no_cv.py:235] Step 107546 | Loss: 13.0047 | EPE: 2.3329 | Bad-1: 36.03% | Bad-2: 21.25% | Bad-3: 14.61% | LR: 0.000043
+2026-08-06 23:49:52,405 INFO     [phase1_extended_no_cv.py:165] Phase 1 Extended No CV | Step 353921 | Validation EPE: 9.06
+2026-08-06 23:49:52,410 INFO     [phase1_extended_no_cv.py:177] --> Saved new best model: (EPE: 9.0571)
+2026-08-07 00:00:29,342 INFO     [phase1_extended_no_cv.py:235] Step 112027 | Loss: 15.9524 | EPE: 3.1467 | Bad-1: 43.29% | Bad-2: 29.57% | Bad-3: 22.84% | LR: 0.000041
+2026-08-07 00:02:19,408 INFO     [phase1_extended_no_cv.py:165] Phase 1 Extended No CV | Step 358401 | Validation EPE: 10.24
+2026-08-07 00:13:02,363 INFO     [phase1_extended_no_cv.py:235] Step 116508 | Loss: 28.6662 | EPE: 6.5746 | Bad-1: 49.06% | Bad-2: 37.89% | Bad-3: 32.09% | LR: 0.000039
+2026-08-07 00:14:51,939 INFO     [phase1_extended_no_cv.py:165] Phase 1 Extended No CV | Step 362881 | Validation EPE: 11.67
+2026-08-07 00:25:22,545 INFO     [phase1_extended_no_cv.py:235] Step 120989 | Loss: 11.7227 | EPE: 1.9989 | Bad-1: 31.38% | Bad-2: 19.09% | Bad-3: 13.64% | LR: 0.000037
+2026-08-07 00:27:10,576 INFO     [phase1_extended_no_cv.py:165] Phase 1 Extended No CV | Step 367361 | Validation EPE: 9.78
+2026-08-07 00:37:49,039 INFO     [phase1_extended_no_cv.py:235] Step 125470 | Loss: 42.3720 | EPE: 7.6867 | Bad-1: 60.95% | Bad-2: 48.05% | Bad-3: 40.13% | LR: 0.000035
+2026-08-07 00:39:29,215 INFO     [phase1_extended_no_cv.py:165] Phase 1 Extended No CV | Step 371841 | Validation EPE: 11.92
+2026-08-07 00:50:10,461 INFO     [phase1_extended_no_cv.py:235] Step 129951 | Loss: 18.9689 | EPE: 3.3293 | Bad-1: 41.52% | Bad-2: 27.31% | Bad-3: 20.67% | LR: 0.000033
+2026-08-07 00:51:51,604 INFO     [phase1_extended_no_cv.py:165] Phase 1 Extended No CV | Step 376321 | Validation EPE: 12.37
+2026-08-07 01:02:40,109 INFO     [phase1_extended_no_cv.py:235] Step 134432 | Loss: 9.4441 | EPE: 1.5967 | Bad-1: 22.58% | Bad-2: 13.46% | Bad-3: 8.96% | LR: 0.000031
+2026-08-07 01:04:19,857 INFO     [phase1_extended_no_cv.py:165] Phase 1 Extended No CV | Step 380801 | Validation EPE: 10.16
+2026-08-07 01:14:57,111 INFO     [phase1_extended_no_cv.py:235] Step 138913 | Loss: 25.4031 | EPE: 4.3704 | Bad-1: 43.95% | Bad-2: 28.91% | Bad-3: 22.64% | LR: 0.000029
+2026-08-07 01:16:36,390 INFO     [phase1_extended_no_cv.py:165] Phase 1 Extended No CV | Step 385281 | Validation EPE: 12.00
+2026-08-07 01:27:39,906 INFO     [phase1_extended_no_cv.py:235] Step 143394 | Loss: 11.4529 | EPE: 1.9488 | Bad-1: 34.73% | Bad-2: 21.15% | Bad-3: 15.21% | LR: 0.000027
+2026-08-07 01:29:20,769 INFO     [phase1_extended_no_cv.py:165] Phase 1 Extended No CV | Step 389761 | Validation EPE: 10.55
+2026-08-07 01:40:17,562 INFO     [phase1_extended_no_cv.py:235] Step 147875 | Loss: 6.3811 | EPE: 1.2439 | Bad-1: 14.69% | Bad-2: 8.37% | Bad-3: 6.57% | LR: 0.000025
+2026-08-07 01:41:58,834 INFO     [phase1_extended_no_cv.py:165] Phase 1 Extended No CV | Step 394241 | Validation EPE: 13.54
+2026-08-07 01:52:47,911 INFO     [phase1_extended_no_cv.py:235] Step 152356 | Loss: 20.2370 | EPE: 3.3137 | Bad-1: 43.90% | Bad-2: 30.52% | Bad-3: 22.82% | LR: 0.000023
+2026-08-07 01:54:33,001 INFO     [phase1_extended_no_cv.py:165] Phase 1 Extended No CV | Step 398721 | Validation EPE: 9.63
+2026-08-07 02:04:52,165 INFO     [phase1_extended_no_cv.py:235] Step 156837 | Loss: 11.2668 | EPE: 1.9691 | Bad-1: 31.04% | Bad-2: 17.86% | Bad-3: 12.67% | LR: 0.000021
+2026-08-07 02:06:38,673 INFO     [phase1_extended_no_cv.py:165] Phase 1 Extended No CV | Step 403201 | Validation EPE: 12.47
+2026-08-07 02:16:59,168 INFO     [phase1_extended_no_cv.py:235] Step 161318 | Loss: 16.8617 | EPE: 2.7857 | Bad-1: 34.60% | Bad-2: 23.09% | Bad-3: 17.14% | LR: 0.000019
+2026-08-07 02:18:41,842 INFO     [phase1_extended_no_cv.py:165] Phase 1 Extended No CV | Step 407681 | Validation EPE: 10.50
+2026-08-07 02:29:03,816 INFO     [phase1_extended_no_cv.py:235] Step 165799 | Loss: 9.5471 | EPE: 1.8341 | Bad-1: 28.72% | Bad-2: 16.77% | Bad-3: 11.67% | LR: 0.000017
+2026-08-07 02:30:45,836 INFO     [phase1_extended_no_cv.py:165] Phase 1 Extended No CV | Step 412161 | Validation EPE: 12.43
+2026-08-07 02:41:13,408 INFO     [phase1_extended_no_cv.py:235] Step 170280 | Loss: 11.7687 | EPE: 2.3033 | Bad-1: 32.26% | Bad-2: 19.96% | Bad-3: 15.40% | LR: 0.000015
+2026-08-07 02:42:55,120 INFO     [phase1_extended_no_cv.py:165] Phase 1 Extended No CV | Step 416641 | Validation EPE: 9.56
+2026-08-07 02:53:14,142 INFO     [phase1_extended_no_cv.py:235] Step 174761 | Loss: 17.3443 | EPE: 3.3727 | Bad-1: 30.94% | Bad-2: 21.46% | Bad-3: 17.40% | LR: 0.000013
+2026-08-07 02:54:57,844 INFO     [phase1_extended_no_cv.py:165] Phase 1 Extended No CV | Step 421121 | Validation EPE: 13.10
+2026-08-07 03:05:21,952 INFO     [phase1_extended_no_cv.py:235] Step 179242 | Loss: 19.2678 | EPE: 3.2055 | Bad-1: 41.18% | Bad-2: 29.26% | Bad-3: 22.13% | LR: 0.000011
+2026-08-07 03:07:10,675 INFO     [phase1_extended_no_cv.py:165] Phase 1 Extended No CV | Step 425601 | Validation EPE: 10.90
+2026-08-07 03:17:43,812 INFO     [phase1_extended_no_cv.py:235] Step 183723 | Loss: 13.1706 | EPE: 1.9465 | Bad-1: 28.02% | Bad-2: 16.41% | Bad-3: 12.20% | LR: 0.000009
+2026-08-07 03:19:29,608 INFO     [phase1_extended_no_cv.py:165] Phase 1 Extended No CV | Step 430081 | Validation EPE: 11.22
+2026-08-07 03:30:06,242 INFO     [phase1_extended_no_cv.py:235] Step 188204 | Loss: 7.1744 | EPE: 1.2909 | Bad-1: 20.21% | Bad-2: 9.84% | Bad-3: 6.34% | LR: 0.000007
+2026-08-07 03:31:49,689 INFO     [phase1_extended_no_cv.py:165] Phase 1 Extended No CV | Step 434561 | Validation EPE: 10.32
+2026-08-07 03:42:17,400 INFO     [phase1_extended_no_cv.py:235] Step 192685 | Loss: 14.5254 | EPE: 2.9019 | Bad-1: 29.24% | Bad-2: 18.17% | Bad-3: 13.35% | LR: 0.000005
+2026-08-07 03:44:05,737 INFO     [phase1_extended_no_cv.py:165] Phase 1 Extended No CV | Step 439041 | Validation EPE: 9.93
+2026-08-07 03:54:37,437 INFO     [phase1_extended_no_cv.py:235] Step 197166 | Loss: 11.0189 | EPE: 1.9705 | Bad-1: 32.63% | Bad-2: 17.63% | Bad-3: 12.41% | LR: 0.000003
+2026-08-07 03:56:32,903 INFO     [phase1_extended_no_cv.py:165] Phase 1 Extended No CV | Step 443521 | Validation EPE: 10.16
+2026-08-07 04:07:12,345 INFO     [phase1_extended_no_cv.py:235] Step 201647 | Loss: 15.6601 | EPE: 2.7995 | Bad-1: 35.18% | Bad-2: 21.83% | Bad-3: 16.38% | LR: 0.000001
+2026-08-07 04:08:59,705 INFO     [phase1_extended_no_cv.py:165] Phase 1 Extended No CV | Step 448001 | Validation EPE: 10.78

@@ -339,8 +339,10 @@ def test_middlebury():
 
 def test_eth3d():
     n_checks = 20
-    dataset = ETH3D(augmentor=None, condition='train', train_frac=0.7, is_phase_2=False)
-    print(f"ETH3D dataset has {len(dataset.left_img_paths)} samples.")
+    train_dataset = ETH3D(augmentor=None, condition='train', train_frac=0.5, is_phase_2=False)
+    test_dataset = ETH3D(augmentor=None, condition='test', train_frac=0.5, is_phase_2=False)
+    print(f"ETH3D TRAINING dataset has {len(train_dataset.left_img_paths)} samples.")
+    print(f"ETH3D TESTING dataset has {len(test_dataset.left_img_paths)} samples.")
     return
     idxs = range(0, len(dataset.left_img_paths), max(1, len(dataset.left_img_paths)//n_checks))
     for i in idxs:
@@ -350,5 +352,11 @@ def test_eth3d():
         assert scene_dir in l and scene_dir in r and scene_dir in d, (l, r, d)
         assert os.path.exists(l) and os.path.exists(r) and os.path.exists(d), (l, r, d)
     print(f"Checked {len(list(idxs))} triples — all aligned and exist.")
+
+
+# def test_things():
+#     test_set = SceneFlowDataset(augmentor=None, is_phase_2=False, mode='TEST', subsets=['flyingthings'])
+#     print(f"FlyingThings TEST has {len(test_set.left_img_paths[0])} frames")
+    
 # if __name__ == '__main__':
 #     test_eth3d()

@@ -27,7 +27,6 @@ import importlib
 from collections import defaultdict
 # from bidavideo.evaluation.core.evaluator import Evaluator
 from bidastabilizer_integration.train_utils.losses import sequence_loss, consistency_loss
-import bidastabilizer_integration.video_datasets as datasets
 autocast = torch.cuda.amp.autocast
 
 from core.liteanystereo import original_LAS
@@ -62,19 +61,27 @@ def forward_batch(batch, model, model_stabilizer, Flow_Model, args, total_steps=
     b, T, *_ = batch["img"][:, :, 0].shape
     for i in range(T):        
         # ==== LAS MODEL INFERENCE ====
-        flow_predictions,_ = model(batch["img"][:, :, 0][:, i], batch["img"][:, :, 1][:, i], max_disp=192, test_mode=False)
+        if args.name == "raftstereo_stabilizer":
+            _, flow_predictions = model(batch["img"][:, :, 0][:, i], batch["img"][:, :, 1][:, i],
+                                        iters=args.train_iters, test_mode=True)
+        elif args.name == "LAS_stabilizer":
+            flow_predictions,_ = model(batch["img"][:, :, 0][:, i], batch["img"][:, :, 1][:, i], max_disp=192, test_mode=False)
         disparities_list.append(flow_predictions)
+        
     disparities = torch.stack(disparities_list, dim=0) # T B C H W
 
+    if args.name == "LAS_stabilizer":
+        disparities = -disparities # # Disparity from LAS model is positive, but BiDAStabilizer expects nagative disparity value and also GT is negative
 
-    print(f"LAS1 output: min={disparities.min().item()}, max={disparities.max().item()}")
+    print(f"{args.name.split("_")[0]} output: min={disparities.min().item()}, max={disparities.max().item()}")
     print(f"GT disp:     min={batch['disp'].min().item()}, max={batch['disp'].max().item()}")
 
     num_traj = len(batch["disp"][0]) # number of frames
+    # logging.info(f"Number of frames in the video: {num_traj}")
     # Input: B T C H W    Output: T B C H W
     
     # Disparity from LAS model is positive, but BiDAStabilizer expects nagative disparity value and also GT is negative
-    disparities_stb = model_stabilizer(batch["img"][:, :, 0], -disparities.permute(1,0,2,3,4)) # B T C H W 
+    disparities_stb = model_stabilizer(batch["img"][:, :, 0], disparities.permute(1,0,2,3,4)) # B T C H W 
 
     for i in range(num_traj):
         #eq.14 from paper 
@@ -104,10 +111,18 @@ def forward_batch(batch, model, model_stabilizer, Flow_Model, args, total_steps=
 def train(args):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     # Add LAS model 
-    model = original_LAS(fnet_pretrained=False)
+    if args.name == "LAS_stabilizer":
+        model = original_LAS(fnet_pretrained=False)
+        import bidastabilizer_integration.video_datasets as datasets
+        logging.info(f"Stereo model: LAS | video datasets 1")
+    elif  args.name == "raftstereo_stabilizer":
+        from bidastabilizer_integration.models.raft_stereo_model import RAFTStereoModel
+        model = RAFTStereoModel().model
+        import bidastabilizer_integration.video_datasets2 as datasets
+        logging.info(f"Stereo model: RAFT-Stereo | video datasets 2")
     
     from bidastabilizer_integration.models.raft_model import RAFTModel
-    raft = RAFTModel()
+    raft = RAFTModel() # predict the optical flow 
 
     from bidastabilizer_integration.models.bidastabilizer import BiDAStabilizer
     model_stabilizer = BiDAStabilizer()
@@ -125,30 +140,6 @@ def train(args):
         
     train_loader = datasets.fetch_dataloader(args)
     
-    # if args.skip_frames_check:
-    #     from collections import defaultdict
-    #     skip_count = 0
-    #     total_checks = 0
-    #     per_frame_skips = defaultdict(int)
-
-    #     for step, batch in enumerate(tqdm(train_loader)):
-    #         if step >= 1000:
-    #             break
-    #         num_traj = batch["disp"].shape[1]
-    #         for i in range(num_traj):
-    #             valid_i = batch["valid_disp"][:, i, 0]
-    #             total_checks += 1
-    #             if valid_i.sum() == 0:
-    #                 skip_count += 1
-    #                 per_frame_skips[i] += 1
-
-    #     print(f"\n{skip_count} / {total_checks} frame-checks were empty "
-    #         f"({100 * skip_count / total_checks:.2f}%)")
-    #     print(f"Per-frame-position breakdown: {dict(sorted(per_frame_skips.items()))}")
-
-    #     import sys
-    #     sys.exit(0)
-
     logging.info(f"Train loader size:  {len(train_loader)}")
 
     optimizer, scheduler = fetch_optimizer(args, model, model_stabilizer, raft)
@@ -159,7 +150,7 @@ def train(args):
     logger = Logger(model_stabilizer, scheduler, args.ckpt_path)
     
     if args.restore_ckpt is not None:
-        # Restore LAS checkpoint
+        # Restore LAS / RAFT-Stereo checkpoint
         assert args.restore_ckpt.endswith(".pth") or args.restore_ckpt.endswith(
             ".pt"
         )
@@ -171,12 +162,13 @@ def train(args):
         state_dict = torch.load(args.restore_ckpt, map_location=device)
         if "model" in state_dict:
             state_dict = state_dict["model"]
+            
         if list(state_dict.keys())[0].startswith("module."):
             state_dict = {
                 k.replace("module.", ""): v for k, v in state_dict.items()
             }
         model.load_state_dict(state_dict, strict=strict)
-        logging.info(f"Done loading checkpoint")
+        logging.info(f"Done loading stero model checkpoint")
         
     if args.restore_stabilizer_ckpt is not None:
         assert args.restore_stabilizer_ckpt.endswith(".pth") or args.restore_stabilizer_ckpt.endswith(
@@ -205,12 +197,22 @@ def train(args):
     should_keep_training = True
     global_batch_num = 0
     epoch = -1
-    
+
     start_time = time.time()
     skipped_frame_log = []
     while should_keep_training:
         epoch += 1
+        data_time = 0.0
+        compute_time = 0.0
+        log_interval = 50
+        t_end = time.time()
+
         for i_batch, batch in enumerate(tqdm(train_loader)):
+            data_time += time.time() - t_end  # time spent waiting on the dataloader
+
+            torch.cuda.synchronize()
+            t_compute_start = time.time()
+
             optimizer.zero_grad()
             if batch is None:
                 print("batch is None")
@@ -219,7 +221,9 @@ def train(args):
                 batch[k] = v.cuda()
 
             assert model_stabilizer.training
-            output = forward_batch(batch, model, model_stabilizer, raft, args, total_steps, skipped_frame_log)
+            output = forward_batch(
+                batch, model, model_stabilizer, raft, args, total_steps, skipped_frame_log
+            )
 
             loss = 0
             logger.update()
@@ -232,7 +236,6 @@ def train(args):
                 if "metrics" in v:
                     logger.push(v["metrics"], k)
 
-            
             if len(output) > 1:
                 logger.writer.add_scalar(
                     f"live_total_loss", loss.item(), total_steps
@@ -241,7 +244,7 @@ def train(args):
                 f"learning_rate", optimizer.param_groups[0]["lr"], total_steps
             )
             global_batch_num += 1
-            
+
             scaler.scale(loss).backward()
             scaler.unscale_(optimizer)
             torch.nn.utils.clip_grad_norm_(model_stabilizer.parameters(), 1.0)
@@ -251,12 +254,20 @@ def train(args):
                 scheduler.step()
             scaler.update()
             total_steps += 1
+            
+            torch.cuda.synchronize()
+            compute_time += time.time() - t_compute_start
+            
+            # if total_steps % log_interval == 0:
+            #     logging.info(f"data_time: {data_time:.2f}s, compute_time: {compute_time:.2f}s, ratio: {data_time/(data_time+compute_time):.2%}")
+            #     data_time = 0.0
+            #     compute_time = 0.0
 
             if total_steps % Logger.SUM_FREQ == Logger.SUM_FREQ - 1:
                 print(f"Skipped frames so far: {len(skipped_frame_log)} / {total_steps} steps")
                 with open(f"{args.ckpt_path}/skipped_frames.json", "w") as f:
                     json.dump(skipped_frame_log, f, indent=2)
-    
+
             if (i_batch >= len(train_loader) - 1) or (total_steps == 1 and args.validate_at_start):
                 ckpt_iter = "0" * (6 - len(str(total_steps))) + str(total_steps)
                 save_path = Path(
@@ -272,17 +283,17 @@ def train(args):
 
                 logging.info(f"Saving file {save_path}")
                 torch.save(save_dict, save_path)
-                
+
                 with open(f"{args.ckpt_path}/skipped_frames.json", "w") as f:
                     json.dump(skipped_frame_log, f, indent=2)
 
             if total_steps > args.num_steps:
                 should_keep_training = False
                 break
-    end_time = time.time()
-    duration = end_time - start_time
-    print(f"Duration: {duration:.2f}s")   
-    
+    # end_time = time.time()
+    # duration = end_time - start_time
+    # print(f"Duration: {duration:.2f}s")
+
     logger.close()
     PATH = f"{args.ckpt_path}/{args.name}_final.pth"
     torch.save(model_stabilizer.state_dict(), PATH)

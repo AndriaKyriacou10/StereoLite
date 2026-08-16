@@ -1,0 +1,12 @@
+{
+  "exp_dir": "./eval_results_video_original",
+  "model_weights": "./checkpoints/LiteAnyStereo.pth",
+  "kernel_size": 50,
+  "stabilizer_ckpt": "./checkpoints/disp_corr_run_b8/LAS_stabilizer_final.pth",
+  "sample_len": 9,
+  "dstype": "frames_cleanpass",
+  "seed": 42,
+  "gpu_idx": 0,
+  "visualize_interval": 0,
+  "render_bin_size": null
+}

@@ -215,16 +215,20 @@ def train_one_epoch_phase2(teacher_model:CustomLiteAnyStereo, student_model:Cust
             logger.writer.add_text('Training Metrics', text_string, logger.global_step)
     return epoch_loss / len(dataloader)
 
-def phase1_training(epochs):
+def phase1_training(epochs, scale_right_weight):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    RUN = 'scale_right_' + str(scale_right_weight)
     
     # Best EPE Model Checkpoint Directory
     save_dir = './checkpoints'
     os.makedirs(save_dir, exist_ok=True)
 
     # Inrermediate Checkpoints Directory
-    save_inter = 'checkpoints_inter'
-    os.makedirs(save_inter, exist_ok=True)
+    # save_inter = 'checkpoints_inter'
+    # os.makedirs(save_inter, exist_ok=True)
+    
+    ckpt_save_path=f'scale_right_{scale_right_weight}'
+    os.makedirs(ckpt_save_path, exist_ok=True)
     
     # Load Dataset
     print("Loading Dataset...")
@@ -232,7 +236,7 @@ def phase1_training(epochs):
     val_loaders = fetch_testing_dataloader(datasets=['sceneflow', 'eth3d', 'middlebury'], return_occ=False)
     
     # Load Model
-    model = CustomLiteAnyStereo().to(device)
+    model = CustomLiteAnyStereo(scale_right=scale_right_weight).to(device)
     
     w = model.context_net.model.conv1.weight.data
     w_left_norm = w[:, :3].norm().item()
@@ -243,7 +247,7 @@ def phase1_training(epochs):
     
     print("Initializing TensorBoard Logger...")
     current_time = datetime.now().strftime('%b%d_%H-%M-%S')
-    logger = CustomLogger(log_dir=f"./runs/phase1_training_{current_time}", flush_freq=100)
+    logger = CustomLogger(log_dir=f"./runs/phase1_training_{RUN}_{current_time}", flush_freq=100)
     
     logger.log_batch({'ctxnet_w_left_norm': w_left_norm, 'ctxnet_w_right_norm': w_right_norm})
     
@@ -283,18 +287,18 @@ def phase1_training(epochs):
         }
         
         if epoch % 5 == 0:
-            torch.save(checkpoint, f"{save_inter}/phase1_epoch_{epoch+1}_full.pth")
+            torch.save(checkpoint, f"{ckpt_save_path}/phase1_epoch_{epoch+1}_{RUN}.pth")
         
         if val_epe < best_epe:
             best_epe = val_epe
-            torch.save({'model_state': model.state_dict()}, f"{save_dir}/phase1_best_model_RUN2_{current_time}.pth")
+            torch.save(checkpoint, f"{ckpt_save_path}/phase1_best_model_{RUN}_{current_time}.pth")
             print(f"--> Saved new best model: (EPE: {best_epe:.4f})")
     
     logger.close()  
     print("Phase 1 Training Complete!")
     
 
-def phase2_training(epochs, val_freq = 2500, teacher_ckpt='./checkpoints/phase1_best_model.pth'):
+def phase2_training(epochs, scale_right_weight, val_freq = 2500, teacher_ckpt='./checkpoints/phase1_best_model.pth'):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     save_dir = './checkpoints'
     
@@ -304,8 +308,8 @@ def phase2_training(epochs, val_freq = 2500, teacher_ckpt='./checkpoints/phase1_
     
     val_loaders = fetch_testing_dataloader(datasets=['sceneflow', 'eth3d', 'middlebury'], return_occ=False)
     
-    teacher_model = CustomLiteAnyStereo().to(device)
-    student_model = CustomLiteAnyStereo().to(device)
+    teacher_model = CustomLiteAnyStereo(scale_right=scale_right_weight).to(device)
+    student_model = CustomLiteAnyStereo(scale_right=scale_right_weight).to(device)
     
     phase1_checkpoint = torch.load(teacher_ckpt, map_location=device)
     teacher_model.load_state_dict(phase1_checkpoint['model_state'])
@@ -382,13 +386,13 @@ def phase2_training(epochs, val_freq = 2500, teacher_ckpt='./checkpoints/phase1_
     print("Phase 2 Training Complete!")
     
     
-def main(epochs, teacher_ckpt=None, phase=1):
+def main(epochs, scale_right_weight, teacher_ckpt=None, phase=1):
     if phase == 1:
         print("Starting Phase 1 Training...")
-        phase1_training(epochs)
+        phase1_training(epochs, scale_right_weight)
     elif phase == 2:
         print('Staring Phase 2 Training...')
-        phase2_training(epochs, teacher_ckpt=teacher_ckpt)
+        phase2_training(epochs, scale_right_weight, teacher_ckpt=teacher_ckpt)
     print("Training Complete!")
     
 
@@ -500,8 +504,9 @@ if __name__ == "__main__":
     parser.add_argument('--epochs', type=int, default=100, help='Number of epochs for training')
     parser.add_argument('--teacher_ckpt', type=str, default='./checkpoints/phase1_best_model.pth', help='Path to the teacher model checkpoint for Phase 2 training')
     parser.add_argument('--phase', type=int, default=1, choices=[1, 2], help='Phase of training: 1 for Phase 1, 2 for Phase 2')
-    epochs = parser.parse_args().epochs
-    teacher_ckpt = parser.parse_args().teacher_ckpt
-    # main(epochs, teacher_ckpt, parser.parse_args().phase)
+    parser.add_argument('--scale_right_weight', type=float, default=0.3, help='Scaling factor for the right image weights in the context network')
+    args = parser.parse_args()
+        
+    main(args.epochs,  args.scale_right_weight, args.teacher_ckpt, args.phase)
     
-    test_lr(teacher_ckpt)  # Call the test_lr function after training is complete
+    # test_lr(teacher_ckpt)  # Call the test_lr function after training is complete

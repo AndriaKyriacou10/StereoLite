@@ -7,13 +7,15 @@ from .fnet import FeatureNet
 from .aggregation import Aggregation2D
 from .context_network import ContextNet
 from .conv_gru import ConvGRU
+from core.utils.utils import InputPadder
+from collections import defaultdict
 
 class CustomLiteAnyStereo(nn.Module):
-    def __init__(self):
+    def __init__(self,  scale_right=0.3):
         super(CustomLiteAnyStereo, self).__init__()
         self.fnet = FeatureNet()
        
-        self.context_net = ContextNet()
+        self.context_net = ContextNet(scale_right)
         
         disp_channels = 1
         cv_channels = 192 // 4  # max_disp // 4 = 192 // 4 = 48
@@ -171,3 +173,31 @@ class original_LAS(nn.Module):
         else:
             disp_linear = F.interpolate(disp, left.shape[2:], mode='bilinear', align_corners=False)
             return [disp_up, disp_linear * 4.]
+
+    def forward_stabilizer(self, batch_dict, model_stabilizer, kernel_size=50):
+
+        predictions = defaultdict(list)
+        for stereo_pair in batch_dict["stereo_video"]:
+            left_image_rgb = stereo_pair[None, 0].cuda()  # stereo_pair[None, 0] — same indexing as repo
+            right_image_rgb = stereo_pair[None, 1].cuda()  # stereo_pair[None, 1]
+
+            padder = InputPadder(left_image_rgb.shape, divis_by=32)           # reuse core.utils.utils.InputPadder — you already
+                                    # import this elsewhere, no need for raft_stereo_utils
+            left_image_rgb, right_image_rgb = padder.pad(left_image_rgb, right_image_rgb)
+
+            disp_up = self.forward(left_image_rgb, right_image_rgb, max_disp=192, test_mode=True)
+            # ^ no `iters`/autocast — that's RAFT-Stereo-specific, LAS's forward()
+            #   doesn't take either
+
+            disp_up = padder.unpad(disp_up)
+            predictions["disparity"].append(disp_up)
+
+        predictions["disparity"] = torch.stack(predictions["disparity"], dim=1)
+
+        disparities = model_stabilizer.forward_batch(
+            batch_dict["stereo_video"][:, 0].cuda(),
+            -predictions["disparity"].squeeze(0),                     # <-- the one line that must NOT match the repo
+            kernel_size=kernel_size,
+        )
+        predictions["disparity"] = disparities.squeeze(1).abs()
+        return predictions

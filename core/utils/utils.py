@@ -7,13 +7,14 @@ from scipy import interpolate
 from torch.utils.tensorboard import SummaryWriter
 
 class CustomLogger:
-    def __init__(self, log_dir, flush_freq = 100):
+    def __init__(self, log_dir, flush_freq = 100, step=0):
         self.writer = SummaryWriter(log_dir)
         
         self.flush_freq = flush_freq
-        self.global_step = 0
+        self.global_step = step
         self.running_sums = {}
         self.running_counts = {}
+        self.log_dir = log_dir
         
     def log_batch(self, metrics_dict: dict):
         self.global_step += 1

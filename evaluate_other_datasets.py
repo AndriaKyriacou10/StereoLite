@@ -4,9 +4,68 @@ from sympy import to_cnf
 import torch
 import numpy as np
 from core.liteanystereo import CustomLiteAnyStereo, original_LAS
-from core.training_datasets import ETH3D, fetch_testing_dataloader, Middlebury
+from core.training_datasets import ETH3D, fetch_testing_dataloader, Middlebury, SceneFlowDataset
 from core.utils.utils import InputPadder
 from PIL import Image
+
+@torch.no_grad()
+def validate_flyingthings(model, cost_volume=False):
+    model.eval()
+
+    val_dataset = SceneFlowDataset(augmentor=None, is_phase_2=False, mode='TEST', subsets=['flyingthings'])
+    out_list, epe_list = [], []
+
+    for idx in range(len(val_dataset)):
+        img1, img2, _, _, disp_gt, valid_mask = val_dataset[idx]
+
+        if torch.isnan(disp_gt).any() or torch.isinf(disp_gt).any():
+            logging.warning(f"[{idx}] disp_gt has NaN/Inf — skipping")
+            continue
+
+        img1 = img1.unsqueeze(0).to(device)
+        img2 = img2.unsqueeze(0).to(device)
+
+        padder = InputPadder(img1.shape, divis_by=32)
+        img1, img2 = padder.pad(img1, img2)
+
+        if isinstance(model, CustomLiteAnyStereo):
+            disp_pred = model(img1, img2, test_mode=True, compute_cost_volume=cost_volume)
+        else:
+            disp_pred = model(img1, img2, test_mode=True)
+
+        if torch.isnan(disp_pred).any():
+            logging.warning(f"[{idx}] model produced NaN output — skipping")
+            continue
+
+        disp_pred = padder.unpad(disp_pred).squeeze().cpu()
+        assert disp_pred.shape == disp_gt.squeeze().shape
+
+        epe_map = torch.abs(disp_pred - disp_gt.squeeze())
+        epe_flattened = epe_map.flatten()
+
+        val = valid_mask.flatten() >= 0.5
+        n_valid = val.sum().item()
+
+        if n_valid == 0:
+            logging.warning(f"[{idx}] zero valid pixels (max disp_gt={disp_gt.max().item():.1f}) — skipping")
+            continue
+
+        outliers = (epe_flattened > 1.0)
+        image_out = outliers[val].float().mean().item()
+        image_epe = epe_flattened[val].mean().item()
+
+        logging.info(f"FlyingThings3D {idx+1} out of {len(val_dataset)}. EPE {round(image_epe,4)} Bad1 {round(image_out,4)}")
+        epe_list.append(image_epe)
+        out_list.append(image_out)
+    
+    epe_list = np.array(epe_list)
+    out_list = np.array(out_list)
+
+    epe = np.mean(epe_list)
+    d1 = 100 * np.mean(out_list)
+
+    print(f"Validation FlyingThings3D: EPE {epe}, Bad1 {d1}")
+    return {'flyingthings-epe': epe, 'flyingthings-d1': d1}
 
 @torch.no_grad()
 def validate_eth3d(model, cost_volume = False):
@@ -123,7 +182,7 @@ def validate_middlebury(model, split='MiddEval3', resolution='F', cost_volume = 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--ckpt', help='Restore Checkpoint', default='./checkpoints/phase2_best_model.pth')
-    parser.add_argument('--dataset', help='dataset for evaluation', choices=['eth3d'] +[f"middlebury_{s}" for s in 'FHQ'])
+    parser.add_argument('--dataset', help='dataset for evaluation', choices=['eth3d', 'sceneflow'] +[f"middlebury_{s}" for s in 'FHQ'])
     parser.add_argument('--cost_volume', action='store_true', help='Compute cost volume during inference')
     parser.add_argument('--model', choices=['Custom', 'Original'], default='Custom', help='Model type to use for evaluation')
     args = parser.parse_args()
@@ -153,6 +212,7 @@ if __name__ == '__main__':
     
     if args.dataset == 'eth3d':
         validate_eth3d(model, cost_volume = args.cost_volume)
-    
     elif args.dataset in [f"middlebury_{s}" for s in 'FHQ']:
         validate_middlebury(model, cost_volume = args.cost_volume, resolution = args.dataset[-1])
+    elif args.dataset == 'sceneflow':
+        validate_flyingthings(model, cost_volume = args.cost_volume)

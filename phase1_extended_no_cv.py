@@ -13,6 +13,7 @@ from torch.utils.tensorboard import SummaryWriter
 import argparse
 from datetime import datetime
 from core.utils.utils import InputPadder, CustomLogger
+import logging
 
 def sequence_loss(disp_preds, disp_gt, valid_mask, gamma=0.8):
     total_loss = 0.0
@@ -101,7 +102,7 @@ def phase1_extended_no_cv(ckpt, resume_ckpt):
     
     
     if resume_ckpt:
-        print(f"Resuming training from checkpoint: {resume_ckpt}")
+        logging.info(f"Resuming training from checkpoint: {resume_ckpt}")
         checkpoint = torch.load(resume_ckpt, map_location=device)
     else:
         checkpoint = torch.load(ckpt, map_location=device)
@@ -109,7 +110,7 @@ def phase1_extended_no_cv(ckpt, resume_ckpt):
     if resume_ckpt:
         step = checkpoint.get('step', 0)
         best_epe = checkpoint.get('best_epe', float('inf'))
-        print(f"Resuming from step: {step}")
+        logging.info(f"Resuming from step: {step}")
     else:
         step = 0
         best_epe = float('inf')
@@ -125,7 +126,7 @@ def phase1_extended_no_cv(ckpt, resume_ckpt):
 
     scaler = torch.amp.GradScaler('cuda')
     
-    print("Initializing TensorBoard Logger...")
+    logging.info("Initializing TensorBoard Logger...")
     current_time = datetime.now().strftime('%b%d_%H-%M-%S')
     logger = CustomLogger(log_dir=f'./runs/phase1_extended_one_cycleLR_{current_time}', flush_freq=100)
 
@@ -144,7 +145,7 @@ def phase1_extended_no_cv(ckpt, resume_ckpt):
         scheduler.load_state_dict(checkpoint['scheduler_state'])
         scheduler.step()
     
-    print(f"Starting Phase 1 Extended Training | Total Steps: {total_steps} | Starting Step: {step}")
+    logging.info(f"Starting Phase 1 Extended Training | Total Steps: {total_steps} | Starting Step: {step} | Best EPE: {best_epe:.4f}")
         
     save_dir = './checkpoints_extended_run'
     os.makedirs(save_dir, exist_ok=True)
@@ -161,7 +162,7 @@ def phase1_extended_no_cv(ckpt, resume_ckpt):
         val_epe = sum(per_dataset_epe.values()) / len(per_dataset_epe)
         logger.log_batch({'val_epe': val_epe})
         logger.writer.add_text('Phase 1 Extended No CV: Validation Summary', f"Step {step+1}: Validation EPE = {val_epe:.4f}", step+1)
-        print(f"Phase 1 Extended No CV | Step {step+1} | Validation EPE: {val_epe:.2f}") 
+        logging.info(f"Phase 1 Extended No CV | Step {step+1} | Validation EPE: {val_epe:.2f}") 
         
         checkpoint = {
             'step': step,
@@ -171,16 +172,16 @@ def phase1_extended_no_cv(ckpt, resume_ckpt):
         }
         tag = 'latest'
         if val_epe < best_epe:
-            tag = 'best'
+            tag = 'BEST'
             best_epe = val_epe
-            print(f"--> Saved new best model: (EPE: {best_epe:.4f})")
+            logging.info(f"--> Saved new best model: (EPE: {best_epe:.4f})")
         
         checkpoint['best_epe'] = best_epe
         
         if tag == 'latest':
-            torch.save(checkpoint, f"{save_dir}/phase1_extended_oneCycleLR{tag}.pth")
+            torch.save(checkpoint, f"{save_dir}/phase1_extended_oneCycleLR_Resume_{tag}.pth")
         else:
-            torch.save(checkpoint, f"{save_dir}/phase1_extended_{tag}_oneCycleLR{current_time}.pth")
+            torch.save(checkpoint, f"{save_dir}/phase1_extended_{tag}_oneCycleLR_Resume_{current_time}.pth")
         return val_epe, best_epe
         
     
@@ -231,6 +232,7 @@ def phase1_extended_no_cv(ckpt, resume_ckpt):
                 logger.writer.add_text('Training Metrics', text_string, logger.global_step)
 
             if step % val_freq == 0:
+                logging.info(text_string)
                 val_epe, best_epe = _run_validation(best_epe, p1_model, val_loaders, device, logger, step, optimizer, save_dir, current_time, scheduler)
             step += 1
             if step >= total_steps:
@@ -246,8 +248,18 @@ if __name__ == "__main__":
     parser.add_argument('--resume', action='store_true', help='Resume training from the last checkpoint')
     args = parser.parse_args()
     
+    log_path = './phase1_extended_no_cv_training_RESUME.log'
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s %(levelname)-8s [%(filename)s:%(lineno)d] %(message)s',
+        handlers=[
+            logging.FileHandler(log_path),
+            logging.StreamHandler()
+        ]
+    )
+    
     if args.resume:
-        resume_ckpt = './checkpoints_extended_run/phase1_extended_best_Jul31_23-28-23.pth'
+        resume_ckpt = './checkpoints_extended_run/phase1_extended_oneCycleLRlatest.pth'
     else:
         resume_ckpt = None
     phase1_extended_no_cv(args.ckpt, resume_ckpt)

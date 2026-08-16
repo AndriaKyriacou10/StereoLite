@@ -12,4 +12,13 @@ bidastabilizer_integration/third_party/SEA-RAFT/demo-frames/
 bidastabilizer_integration/third_party/SEA-RAFT/config/
 bidastabilizer_integration/third_party/RAFT/demo-frames/
 bidastabilizer_integration/third_party/SEA-RAFT/models/
-
+bidastabilizer_integration/third_party/RAFT-Stereo/models/
+bidastabilizer_integration/third_party/RAFT-Stereo/*.yaml
+bidastabilizer_integration/evaluation/configs
+eval_results_video/*.csv
+eval_results_video/*.json
+eval_results_video/*.log
+eval_results_video/*/*.csv
+eval_results_video/*/*.json
+scale_right_1.0/*.pth
+continuous_training

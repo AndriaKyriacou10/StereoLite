@@ -173,13 +173,13 @@ def readDispInStereo2K(filename):
     return disp, valid
 
 # Method taken from /n/fs/raft-depth/RAFT-Stereo/datasets/SintelStereo/sdk/python/sintel_io.py
-def readDispSintelStereo(file_name):
-    a = np.array(Image.open(file_name))
-    d_r, d_g, d_b = np.split(a, axis=2, indices_or_sections=3)
-    disp = (d_r * 4 + d_g / (2**6) + d_b / (2**14))[..., 0]
-    mask = np.array(Image.open(file_name.replace('disparities', 'occlusions')))
-    valid = ((mask == 0) & (disp > 0))
-    return disp, valid
+# def readDispSintelStereo(file_name):
+#     a = np.array(Image.open(file_name))
+#     d_r, d_g, d_b = np.split(a, axis=2, indices_or_sections=3)
+#     disp = (d_r * 4 + d_g / (2**6) + d_b / (2**14))[..., 0]
+#     mask = np.array(Image.open(file_name.replace('disparities', 'occlusions')))
+#     valid = ((mask == 0) & (disp > 0))
+#     return disp, valid
 
 # Method taken from https://research.nvidia.com/sites/default/files/pubs/2018-06_Falling-Things/readme_0.txt
 def readDispFallingThings(file_name):
@@ -253,6 +253,17 @@ def writeFlowKITTI(filename, uv):
     uv = np.concatenate([uv, valid], axis=-1).astype(np.uint16)
     cv2.imwrite(filename, uv[..., ::-1])
     
+def readDispSintelStereo(file_name):
+    """Return disparity read from filename."""
+    f_in = np.array(Image.open(file_name))
+    d_r = f_in[:, :, 0].astype("float64")
+    d_g = f_in[:, :, 1].astype("float64")
+    d_b = f_in[:, :, 2].astype("float64")
+
+    disp = d_r * 4 + d_g / (2 ** 6) + d_b / (2 ** 14)
+    mask = np.array(Image.open(file_name.replace("disparities", "occlusions")))
+    valid = (mask == 0) & (disp > 0) # pixel in not occluded and has positive disparity
+    return disp, valid
 
 def read_gen(file_name, pil=False):
     ext = splitext(file_name)[-1]

@@ -125,7 +125,7 @@ class BiDAStabilizer(nn.Module):
         # compute optical flow
         flow_forward, flow_backward = self.compute_flow(seq1)
 
-        disp_abs = -disp
+        disp_abs = -disp # Input disparity is negative, so negate to get positive
 
         disp_backward_list = []
         for i in range(1, t):

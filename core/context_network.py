@@ -8,7 +8,7 @@ class ContextNet(nn.Module):
     Outputs Initial Disparity and Context Features at 1/4 scale using a modified ResNet-34 architecture
     """
     
-    def __init__(self):
+    def __init__(self, scale_right = 0.3):
         super().__init__()
         self.model = models.resnet34(weights='DEFAULT', progress=True)
         
@@ -22,7 +22,7 @@ class ContextNet(nn.Module):
         self.model.conv1.weight.data[:, :3, :, :] = old_weights  # Copy weights for left image
         
         # Initialize right image weights with a subset of the left image weights
-        scale_right = 0.3
+        
         self.model.conv1.weight.data[:, 3:, :, :] = old_weights * scale_right
         
         # Output Channels = 1 (Initial Disparity) + 128 (Context Features / Hidden State) = 129
