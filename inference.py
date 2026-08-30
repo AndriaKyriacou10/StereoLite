@@ -79,15 +79,16 @@ def parse_args():
                          help='Run with cost volume (teacher-equivalent) instead of the lite student path')
     parser.add_argument('--seed', type=int, default=42,
                          help='Seed for random sampling when --indices is not given')
-    parser.add_argument('--dataset', type=str, default='sceneflow', choices=['sceneflow', 'eth3d', 'middlebury'], help='Dataset for evaluation')
+    parser.add_argument('--dataset', type=str, default='sceneflow', choices=['eth3d', 'sceneflow'] +[f"middlebury_{s}" for s in 'FHQ'], help='Dataset for evaluation')
     parser.add_argument('--indices', type=int, nargs='+', default=None,
                          help='Specific dataset indices to run, e.g. --indices 3237 1295 2273')
+    parser.add_argument('--layer2', action='store_true', help='Use ContextNet with a second layer')
     return parser.parse_args()
 
 if __name__ == '__main__':
     args = parse_args()
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    model = CustomLiteAnyStereo().to(device)
+    model = CustomLiteAnyStereo(layer2=args.layer2).to(device)
     out_dir = None
     
     # Load Weights
@@ -99,12 +100,16 @@ if __name__ == '__main__':
     if args.dataset == 'sceneflow':
         val_dataset = SceneFlowDataset(augmentor=None, is_phase_2=False, mode='TEST', subsets=['flyingthings'])
         out_dir = f"{args.out_dir}/sceneflow"
+        os.makedirs(out_dir, exist_ok=True)
     elif args.dataset == 'eth3d':
         val_dataset = ETH3D(condition='test', return_occ=True)
         out_dir = f"{args.out_dir}/eth3d"
-    elif args.dataset == 'middlebury':
-        val_dataset = Middlebury(split='MiddEval3', resolution='F')
+        os.makedirs(out_dir, exist_ok=True)
+    elif args.dataset in [f"middlebury_{s}" for s in 'FHQ']:
+        resolution = args.dataset.split('_')[1]
+        val_dataset = Middlebury(split='MiddEval3', resolution=resolution)
         out_dir = f"{args.out_dir}/middlebury"
+        os.makedirs(out_dir, exist_ok=True)
         
     dataset_length = len(val_dataset)
     
