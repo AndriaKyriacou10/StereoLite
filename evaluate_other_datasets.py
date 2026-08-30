@@ -9,7 +9,7 @@ from core.utils.utils import InputPadder
 from PIL import Image
 
 @torch.no_grad()
-def validate_flyingthings(model, cost_volume=False):
+def validate_flyingthings(model, cost_volume=False, layer2=False):
     model.eval()
 
     val_dataset = SceneFlowDataset(augmentor=None, is_phase_2=False, mode='TEST', subsets=['flyingthings'])
@@ -68,7 +68,7 @@ def validate_flyingthings(model, cost_volume=False):
     return {'flyingthings-epe': epe, 'flyingthings-d1': d1}
 
 @torch.no_grad()
-def validate_eth3d(model, cost_volume = False):
+def validate_eth3d(model, cost_volume = False, layer2 = False):
     model.eval()
     
     val_dataset = ETH3D(condition = 'test', return_occ = True, train_frac=0.5)
@@ -123,7 +123,7 @@ def validate_eth3d(model, cost_volume = False):
     return {'eth3d-epe': epe, 'eth3d-d1': d1}
 
 @torch.no_grad()
-def validate_middlebury(model, split='MiddEval3', resolution='F', cost_volume = False):
+def validate_middlebury(model, split='MiddEval3', resolution='F', cost_volume = False, layer2 = False):
     model.eval()
 
     
@@ -185,12 +185,14 @@ if __name__ == '__main__':
     parser.add_argument('--dataset', help='dataset for evaluation', choices=['eth3d', 'sceneflow'] +[f"middlebury_{s}" for s in 'FHQ'])
     parser.add_argument('--cost_volume', action='store_true', help='Compute cost volume during inference')
     parser.add_argument('--model', choices=['Custom', 'Original'], default='Custom', help='Model type to use for evaluation')
+    parser.add_argument('--layer2', action='store_true', help='Use ContextNet with a second layer')
     args = parser.parse_args()
     
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
     if args.model == 'Custom':
-        model = CustomLiteAnyStereo()
+    
+        model = CustomLiteAnyStereo(layer2=args.layer2)
         if args.ckpt is not None:
             logging.info("Loading checkpoint...")
             weights = torch.load(args.ckpt, map_location=device)
@@ -211,8 +213,8 @@ if __name__ == '__main__':
     model.eval()   
     
     if args.dataset == 'eth3d':
-        validate_eth3d(model, cost_volume = args.cost_volume)
+        validate_eth3d(model, cost_volume = args.cost_volume, layer2 = args.layer2)
     elif args.dataset in [f"middlebury_{s}" for s in 'FHQ']:
-        validate_middlebury(model, cost_volume = args.cost_volume, resolution = args.dataset[-1])
+        validate_middlebury(model, cost_volume = args.cost_volume, resolution = args.dataset[-1], layer2 = args.layer2)
     elif args.dataset == 'sceneflow':
-        validate_flyingthings(model, cost_volume = args.cost_volume)
+        validate_flyingthings(model, cost_volume = args.cost_volume, layer2 = args.layer2)
