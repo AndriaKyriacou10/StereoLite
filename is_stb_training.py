@@ -9,8 +9,9 @@ import torch.optim as optim
 import time
 from collections import defaultdict
 from bidastabilizer_integration.train_utils.losses import sequence_loss, consistency_loss
-from .core.liteanystereo import original_LAS
+from core.liteanystereo import original_LAS
 import json
+
 @torch.no_grad()
 def diagnose_batch(batch, model, model_stabilizer, Flow_Model, args, total_steps=None, skipped_frame_log=None):
     disparities_list = []
@@ -54,16 +55,16 @@ def diagnose_batch(batch, model, model_stabilizer, Flow_Model, args, total_steps
         loss_base, metrics_base = sequence_loss(disparities[None][:, i], gt_i, valid_i)
         loss_stb, metrics_stb = sequence_loss(disparities_stb[None][:, i], gt_i, valid_i)
         
-        out["supervised_loss_base"] += loss_base / num_traj
-        out["supervised_loss_stb"] += loss_stb / num_traj
+        out["supervised_loss_base"] += (loss_base / num_traj).item()
+        out["supervised_loss_stb"] += (loss_stb / num_traj).item()
         out["epe_base"] += metrics_base['epe'] / num_traj
         out["epe_stb"] += metrics_stb['epe'] / num_traj
         
         # --- fve: did the correction match the correction that was needed? ---
-        m = valid_i.bool()
+        m = valid_i.bool().unsqueeze(1) 
         base_i, stb_i = disparities[i], disparities_stb[i]
-        residual = (stb_i - base_i)[m]                          # what it did
-        target   = (gt_i  - base_i)[m]                          # what it should have done
+        residual = (stb_i - base_i)[m] # correction applied by the stabilizer
+        target   = (gt_i  - base_i)[m] # correction that was required
         out["fve_num"] += ((target - residual) ** 2).sum().item()
         out["fve_den"] += (target ** 2).sum().item()
 
@@ -132,6 +133,42 @@ def parse_arguments():
     parser.add_argument(
         "--num_workers", type=int, default=6, help="number of dataloader workers."
     )
+    
+    # Data augmentation
+    parser.add_argument(
+        "--img_gamma", type=float, nargs="+", default=None, help="gamma range"
+    )
+    parser.add_argument(
+        "--saturation_range",
+        type=float,
+        nargs="+",
+        default=None,
+        help="color saturation",
+    )
+    parser.add_argument(
+        "--do_flip",
+        default=False,
+        choices=["h", "v"],
+        help="flip the images horizontally or vertically",
+    )
+    parser.add_argument(
+        "--spatial_scale",
+        type=float,
+        nargs="+",
+        default=[0, 0],
+        help="re-scale the images randomly",
+    )
+    parser.add_argument(
+        "--noyjitter",
+        action="store_true",
+        help="don't simulate imperfect rectification",
+    )
+    parser.add_argument(
+        "--skip_frames_check", 
+        action="store_true",
+        help="Get empty valid-mask frames without re-training, then exit"
+    )
+    
     parser.add_argument('--max_batches', type=int, default=200, help='Maximum number of batches to process')
     args = parser.parse_args()
     return args
@@ -147,8 +184,9 @@ if __name__ == "__main__":
     elif  args.name == "raftstereo_stabilizer":
         from bidastabilizer_integration.models.raft_stereo_model import RAFTStereoModel
         model = RAFTStereoModel().model
-        import bidastabilizer_integration.video_datasets2 as datasets
-        logging.info(f"Stereo model: RAFT-Stereo | video datasets 2")
+        # import bidastabilizer_integration.video_datasets2 as datasets
+        import bidastabilizer_integration.video_datasets as datasets
+        logging.info(f"Stereo model: RAFT-Stereo | video datasets 1")
     
     from bidastabilizer_integration.models.raft_model import RAFTModel
     raft = RAFTModel() # predict the optical flow 
@@ -228,7 +266,7 @@ if __name__ == "__main__":
     fve = 1.0 - totals["fve_num"] / max(totals["fve_den"], 1e-8)
     means = {k: v / n for k, v in totals.items() if not k.startswith("fve_")}
     
-    file_path = f"is_stb_training_{args.name}.json"
+    file_path = f"is_stb_training_{args.name}_192_mask_iter25k.json"
     
     payload = {
     "args": vars(args),
@@ -250,4 +288,3 @@ if __name__ == "__main__":
         json.dump(payload, f, indent=4)
         
     logging.info(f"Wrote {file_path}")
-    logging.info(json.dumps(payload["deltas"], indent=2))

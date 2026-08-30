@@ -131,80 +131,6 @@ def compute_tepe(disp_t, disp_t1, disp_gt_t, disp_gt_t1, valid_t, valid_t1):
     
     return (error.sum(), nonzero)
 
-
-def measure_error_persistence(disp_raw, disp_stabilized, disp_gt, valid_mask, device):
-    """
-    Test 1: is the backbone's error temporally jittery or temporally persistent?
-
-    Because TEPE's integrand is exactly (e_t - e_t+1) where e_t = d_t - gt_t,
-    TEPE measures the frame-to-frame CHANGE in error. Comparing it against the
-    error magnitude tells us how much of the error is temporally uncorrelated,
-    i.e. how much flicker a temporal refiner could possibly remove.
-
-        rho = TEPE / EPE   ~1.4 if errors are independent across frames,
-                           -> 0 as errors become perfectly persistent
-        r   = corr(e_t, e_t+1)   ~0 = fresh error each frame (jitter)
-                                 ~1 = same mistake every frame (systematic)
-
-    Both are computed on the pairwise-valid mask with a valid-pixel denominator,
-    so that rho is a self-consistent ratio. This deliberately does NOT reuse
-    _get_value(), which divides by count_nonzero(error) and would give EPE and
-    TEPE different, data-dependent denominators.
-    """
-    nan = float('nan')
-    keys = ('n', 'sum_absE', 'sum_absD', 'sum_a', 'sum_b',
-            'sum_aa', 'sum_bb', 'sum_ab')
-
-    disp_gt = [d.to(device) for d in disp_gt]
-    valid_mask = [v.to(device) if v.dim() == 3 else v.unsqueeze(0).to(device)
-                  for v in valid_mask]                      # H W -> 1 H W
-
-    stats = {k: dict.fromkeys(keys, 0.0) for k in ('raw', 'stb')}
-
-    for t in range(len(disp_raw) - 1):
-        m = (valid_mask[t] * valid_mask[t + 1]).float()
-        n = m.sum()
-        if n == 0:
-            continue
-
-        for key, dmap in (('raw', disp_raw), ('stb', disp_stabilized)):
-            e_t  = (dmap[t]     - disp_gt[t]).float()     * m
-            e_t1 = (dmap[t + 1] - disp_gt[t + 1]).float() * m
-            d    = e_t - e_t1
-
-            s = stats[key]
-            s['n']        += n.item()
-            s['sum_absE'] += e_t.abs().sum().item()
-            s['sum_absD'] += d.abs().sum().item()
-            s['sum_a']    += e_t.sum().item()
-            s['sum_b']    += e_t1.sum().item()
-            s['sum_aa']   += (e_t ** 2).sum().item()
-            s['sum_bb']   += (e_t1 ** 2).sum().item()
-            s['sum_ab']   += (e_t * e_t1).sum().item()
-
-    def _reduce(s):
-        n = s['n']
-        if n == 0:
-            return {'epe_pairwise': nan, 'tepe_pairwise': nan, 'rho': nan, 'r': nan}
-        epe  = s['sum_absE'] / n
-        tepe = s['sum_absD'] / n
-        mu_a, mu_b = s['sum_a'] / n, s['sum_b'] / n
-        var_a = max(s['sum_aa'] / n - mu_a ** 2, 0.0)
-        var_b = max(s['sum_bb'] / n - mu_b ** 2, 0.0)
-        denom = (var_a * var_b) ** 0.5
-        return {
-            'epe_pairwise':  epe,
-            'tepe_pairwise': tepe,
-            'rho': tepe / epe if epe > 1e-12 else nan,
-            'r':   (s['sum_ab'] / n - mu_a * mu_b) / denom if denom > 1e-12 else nan,
-        }
-
-    out = {'n_pairwise': stats['raw']['n']}
-    for key, tag in (('raw', 'raw'), ('stb', 'stb')):
-        for name, val in _reduce(stats[key]).items():
-            out[f'{name}_{tag}'] = val
-    return out
-
 def measure_metrics_per_scene(disp_raw, disp_stabilized, disp_gt, valid_mask, device):
     
     def _get_value(error, nonzero, clamp_thr=1e-5):
@@ -254,14 +180,17 @@ def measure_metrics_per_scene(disp_raw, disp_stabilized, disp_gt, valid_mask, de
         'epe_raw': epe_raw
     }
 
-def evaluate(name, stereo_model, stb_model, device, dataset_name):
+def evaluate(name, stereo_model, stb_model, device, dataset_name, kernel_size=50):
     if dataset_name == 'things':
-        max_disp = 192 if name == "LAS_stabilizer" else 192
+        max_disp = 192 if name == "LAS_stabilizer" else 512
         dataset = datasets.SceneFlowVideo(mode="TEST", subsets=['flyingthings'], max_disp=max_disp)
     elif dataset_name.split('_')[0] == 'sintel':
         dstype = dataset_name.split('_')[1]
-        max_disp = 192 if name == "LAS_stabilizer" else None
+        max_disp = 192 if name == "LAS_stabilizer" else 192
         dataset = datasets.SintelStereoVideo(mode='training', dstype=dstype, max_disp = max_disp)
+    elif dataset_name == 'southken':
+        dataset = datasets.SouthKenSV(pseudo_gt_dir='./data/datasets/SouthKensington/indoor/pseudo_gt', max_disp=192, border=0)
+    
     results = []
     
     def _length_weighted_mean(values, lengths):
@@ -277,10 +206,10 @@ def evaluate(name, stereo_model, stb_model, device, dataset_name):
         data = dataset[scene_idx]
         scene_id, left_imgs, right_imgs, disp_gt_frames, valid_frames = data['scene_id'], data['left'], data['right'], data['disp'], data['valid']
         disp_preds = run_stereo_model(name, stereo_model, device, left_imgs, right_imgs)
-        disp_stabilized = run_stabilizer_on_video(name, stb_model, left_imgs, disp_preds, device=device)
+        disp_stabilized = run_stabilizer_on_video(name, stb_model, left_imgs, disp_preds, device=device, kernel_size=kernel_size)
         
         result_scene = measure_metrics_per_scene(disp_preds, disp_stabilized, disp_gt_frames, valid_frames, device)
-        result_scene.update(measure_error_persistence(disp_preds, disp_stabilized, disp_gt_frames, valid_frames, device))
+        # result_scene.update(measure_error_persistence(disp_preds, disp_stabilized, disp_gt_frames, valid_frames, device))
         # logging.info(f"type: {type(result_scene['epe_raw'])}")
         results.append({
             'scene_id':str(scene_id),
@@ -289,16 +218,6 @@ def evaluate(name, stereo_model, stb_model, device, dataset_name):
             'epe_raw': result_scene['epe_raw'],
             'tepe_stabilized': result_scene['tepe_stabilized'],
             'tepe_raw': result_scene['tepe_raw'],
-            # Test 1 
-            # 'n_pairwise': result_scene['n_pairwise'],
-            # 'epe_pairwise_raw': result_scene['epe_pairwise_raw'],
-            # 'tepe_pairwise_raw': result_scene['tepe_pairwise_raw'],
-            # 'rho_raw': result_scene['rho_raw'],
-            # 'r_raw': result_scene['r_raw'],
-            # 'epe_pairwise_stb': result_scene['epe_pairwise_stb'],
-            # 'tepe_pairwise_stb': result_scene['tepe_pairwise_stb'],
-            # 'rho_stb': result_scene['rho_stb'],
-            # 'r_stb': result_scene['r_stb'],
         })
         
         
@@ -320,12 +239,6 @@ def evaluate(name, stereo_model, stb_model, device, dataset_name):
     epe_stb = _length_weighted_mean(epe_stb_scenes, seq_lengths)
     tepe_stb = _length_weighted_mean(tepe_stb_scenes, seq_lengths)  
     
-    # overall = {
-    #     'epe_raw': float(np.nanmean(epe_raw_scenes)),
-    #     'epe_stabilized': float(np.nanmean(epe_stb_scenes)),
-    #     'tepe_raw': float(np.nanmean(tepe_raw_scenes)),
-    #     'tepe_stabilized': float(np.nanmean(tepe_stb_scenes)),
-    # }
     overall = {
         'epe_raw': epe_raw,
         'epe_stabilized': epe_stb,
@@ -456,6 +369,8 @@ def build_figure9_grid(disp_raw, disp_stabilized, left_imgs, disp_gt, valid_mask
 
     plt.colorbar(im_stb, ax=axes[:, 2], fraction=0.025, pad=0.02, label='disparity (px)')
     plt.savefig(save_path, dpi=120, bbox_inches='tight')
+    save_path_eps = save_path.replace('.png', '.eps')
+    plt.savefig(save_path_eps, dpi=120)
     plt.close(fig)
 
 
@@ -495,6 +410,8 @@ def build_diff_maps(disp_raw, disp_stabilized, disp_gt, frame_idx, save_path=Non
 
     plt.tight_layout()
     plt.savefig(save_path, dpi=120)
+    save_path_eps = save_path.replace('.png', '.eps')
+    plt.savefig(save_path_eps, dpi=120)
     plt.close(fig)
 
 
@@ -568,22 +485,12 @@ if __name__ == "__main__":
     parser.add_argument('--ckpt_stb', help="restore stabilizer model checkpoint", required=True)
     parser.add_argument('--visualize', action='store_true', help="visualize results")
     parser.add_argument('--output_dir', default='./eval_results_video')
-    parser.add_argument('--dataset', choices=['things'] + [f'sintel_{dstype}' for dstype in ['clean', 'final']], default='things', help="dataset for evaluation")
+    parser.add_argument('--dataset', choices=['things', 'southken'] + [f'sintel_{dstype}' for dstype in ['clean', 'final']], default='things', help="dataset for evaluation")
+    parser.add_argument('--scene_name', default=None, help="specific scene name for Sintel dataset (e.g., bamboo_2)")
+    parser.add_argument('--iter_name', default='iter35k', help="specific scene name for Sintel dataset (e.g., bamboo_2)")
+    parser.add_argument('--kernel_size', type=int, default=50, help="kernel size for stabilizer")
     args = parser.parse_args()
-    
 
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
     stereo_model, stb_model = load_models(args.name, args.ckpt_model, args.ckpt_stb, device)
@@ -600,7 +507,7 @@ if __name__ == "__main__":
         elif args.dataset.split('_')[0] == 'sintel':
             dstype = args.dataset.split('_')[1]
             dataset = datasets.SintelStereoVideo(mode='training', dstype=dstype)
-            scene_name = 'shaman_3'  # Example scene name for Sintel dataset
+            scene_name = args.scene_name  # Example scene name for Sintel dataset
             idx = get_scene_by_name(dataset, scene_name)
 
         
@@ -626,31 +533,32 @@ if __name__ == "__main__":
         build_figure9_grid(
             disp_preds, disp_stabilized, left_imgs, disp_gt_frames, valid_frames,
             frame_idxs=frame_idxs,
-            save_path=os.path.join(args.output_dir, f'{args.name}_{args.dataset}_visualize_fig9_grid_{scene_name}.png')
+            save_path=os.path.join(args.output_dir, f'{args.name}_{args.dataset}_visualize_fig9_grid_{scene_name}_iter25k.png')
         )
     
         worst_frame = frame_idxs[int(np.argmax(epe_stb_per_frame[frame_idxs] - epe_raw_per_frame[frame_idxs]))]
         build_diff_maps(
             disp_preds, disp_stabilized, disp_gt_frames, frame_idx=worst_frame,
-            save_path=os.path.join(args.output_dir, f'{args.name}_{args.dataset}_visualize_diff_maps_{scene_name}.png')
+            save_path=os.path.join(args.output_dir, f'{args.name}_{args.dataset}_visualize_diff_maps_{scene_name}_iter25k.png')
         )
         sys.exit(0)
 
-    results, overall = evaluate(args.name, stereo_model, stb_model, device, args.dataset)
+    results, overall = evaluate(args.name, stereo_model, stb_model, device, args.dataset, args.kernel_size)
 
     logging.info("===== Evaluation Results =====")
     for k, v in overall.items():
         logging.info(f"{k:20s}: {v:.4f}")
         
-    overall_path = os.path.join(args.output_dir, f'overall_results_{args.name}_{args.dataset}_192_disp.json')
+    overall_path = os.path.join(args.output_dir, f'overall_results_{args.name}_{args.dataset}_192_disp_{args.iter_name}.json')
     with open(overall_path, 'w') as f:
+        json.dump(f"Name : {args.name}, Dataset: {args.dataset}, Iteration: {args.iter_name}, Kernel Size: {args.kernel_size}\n", f, indent=2)
         json.dump(overall, f, indent=2)
 
-    per_scene_path = os.path.join(args.output_dir, f'per_scene_results_{args.name}_{args.dataset}_192_disp.json')
+    per_scene_path = os.path.join(args.output_dir, f'per_scene_results_{args.name}_{args.dataset}_192_disp_{args.iter_name}.json')
     with open(per_scene_path, 'w') as f:
         json.dump(results, f, indent=2)
         
-    csv_path = os.path.join(args.output_dir, f'per_scene_results_{args.name}_{args.dataset}_192_disp.csv')
+    csv_path = os.path.join(args.output_dir, f'per_scene_results_{args.name}_{args.dataset}_192_disp_{args.iter_name}.csv')
     
     with open(csv_path, 'w', newline='') as f:
         writer = csv.DictWriter(f, fieldnames=results[0].keys())

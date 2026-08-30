@@ -10,6 +10,7 @@ from glob import glob
 import os.path as osp
 from .utils import frame_utils
 from collections import defaultdict
+import json
 
 class StereoDataset(data.Dataset):
     def __init__(self, aug_params=None, sparse=False, reader=None, real_world=False):
@@ -468,13 +469,80 @@ class SintelStereoVideo():
             'valid': valid_scene,
             # 'flow': [],  # TODO: wire up real flow loading if/when you need it
         }
-
     def __len__(self):
         return len(self.scenes)
 
 
+class SouthKenSV():
+    def __init__(self, pseudo_gt_dir, max_disp=192, border=0):
+        self.max_disp = max_disp
+        self.border = border
+        self.scenes = []
 
+        npz_paths = sorted(glob(osp.join(pseudo_gt_dir, '*.npz')))
+        
+        for npz_path in sorted(glob(osp.join(pseudo_gt_dir, '*.npz'))):
+            with open(npz_path[:-4] + '.json') as f:
+                meta = json.load(f)
 
+            self.scenes.append({
+                'scene_id': f"{meta['sequence']}",
+                'left':     meta['left_paths'],
+                'right':    meta['right_paths'],   # add this to the cache script
+                'npz':      npz_path,
+                'sign':     meta['sign_convention'],
+            })
+
+        assert self.scenes, f"No cached sequences found in {pseudo_gt_dir}"
+
+    def _fetch_images(self, image_paths):
+            imgs = []
+            for img_path in image_paths:
+                img = frame_utils.read_gen(img_path)
+                img = np.array(img).astype(np.uint8)
+                if len(img.shape) == 2:
+                    img = np.tile(img[..., None], (1, 1, 3))
+                else:
+                    img = img[..., :3]
+                img = torch.from_numpy(np.ascontiguousarray(img)).permute(2, 0, 1).float()
+                imgs.append(img)
+            return imgs
+        
+    def _fetch_disparity(self, npz_path, sign):
+        disp = np.load(npz_path)['disparity'].astype(np.float32)   # (T, H, W)
+        if sign == 'negative':
+            disp = np.abs(disp)
+
+        disp_scene, valid_scene = [], []
+        for t in range(disp.shape[0]):
+            d = torch.from_numpy(disp[t]).unsqueeze(0)             # (1, H, W)
+            valid = (d[0] > 0) & (d[0] <= self.max_disp)
+
+            if self.border > 0:
+                b = self.border
+                mask = torch.zeros_like(valid)
+                mask[b:-b, b:-b] = True
+                valid = valid & mask
+
+            disp_scene.append(d)
+            valid_scene.append(valid.float())
+        return disp_scene, valid_scene
+    
+    def __getitem__(self, index):
+        scene = self.scenes[index]
+        disp, valid = self._fetch_disparity(scene['npz'], scene['sign'])
+        n = len(disp)
+
+        return {
+            'scene_id': scene['scene_id'],
+            'left':     self._fetch_images(scene['left'][:n]),
+            'right':    self._fetch_images(scene['right'][:n]),
+            'disp':     disp,
+            'valid':    valid,
+        }
+    
+    def __len__(self):
+        return len(self.scenes)   
 
 def test_scene_flow_video():
     dataset = SceneFlowVideo(mode='TEST', subsets=['flyingthings'])
@@ -567,7 +635,27 @@ def test_disp():
     print(f"inf pixels:   {n_inf:,} ({100*n_inf/n_total:.4f}%)")
     print(f"nan pixels:   {n_nan:,} ({100*n_nan/n_total:.4f}%)")
     print(f"scenes affected: {len(worst_scenes)} / {len(dataset.scenes)}")    
-    
-if __name__ == "__main__":
-    # test_valid_pixels(dataset_name='flyingthings')
-    test_disp()
+
+def test_southken():
+    import matplotlib.pyplot as plt
+    dataset = SouthKenSV(pseudo_gt_dir='./data/datasets/SouthKensington/indoor/pseudo_gt', max_disp=192, border=0)
+
+    t = 0
+    data = dataset[24]
+    print(len(data['left']), len(data['disp']))
+
+    img1 = data['left'][t] / 255.0
+    d = data['disp'][t][0].numpy()
+    v = data['valid'][t].numpy()
+    print(f"disp {d.min():.2f}..{d.max():.2f}  valid {v.mean():.3f}")
+
+    vmax = np.percentile(d, 99)
+
+    fig, ax = plt.subplots(1, 2, figsize=(12, 5))
+    ax[0].imshow(img1.permute(1, 2, 0))
+    ax[0].set_title(f"Scene {data['scene_id']} | Frame {t}")
+    im_disp = ax[1].imshow(d, cmap='inferno', vmin=0, vmax=vmax)
+    plt.colorbar(im_disp, ax=ax[1], fraction=0.046, pad=0.04)
+    ax[1].set_title("Disparity Map (Pseudo GT)")
+    plt.savefig("southken_test.png", dpi=120, bbox_inches='tight')
+    plt.close(fig)

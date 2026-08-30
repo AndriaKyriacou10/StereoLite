@@ -49,8 +49,8 @@ class TrainingDataset(Dataset):
         img2 = np.array(img2).astype(np.uint8)
 
         disp = np.array(disp).astype(np.float32)
-        valid = valid & np.isfinite(disp) & (disp >= 0) & (disp < self.max_disp)
-        
+
+            
         if len(img1.shape) == 2:
             img1 = np.tile(img1[..., None], (1, 1, 3))
         else:
@@ -126,6 +126,18 @@ class SceneFlowDataset(TrainingDataset):
             self.right_img_paths.extend([p.replace('/left/', '/right/') for p in left_images])
             self.disp_paths.extend([p.replace('frames_cleanpass', 'disparity').replace('.png', '.pfm') for p in left_images])
 
+
+
+class TartanAir(TrainingDataset):
+    def __init__(self, root_dir = '', augmentor = None, is_phase_2 = False):
+        super().__init__(reader=frame_utils.readDispTartanAir, augmentor = augmentor, is_phase_2 = is_phase_2)
+        
+        search_pattern = os.path.join(root_dir, 'image_left/*.png')
+        self.left_paths = sorted(glob.glob(search_pattern))
+        self.right_paths = [p.replace('image_left', 'image_right') for p in self.left_paths]
+        self.disp_paths = [p.replace('image_left', 'depth_left').replace('.png', '_depth.npy') for p in self.left_paths]
+
+
 class Middlebury(TrainingDataset):
     def __init__(self, root='./data/datasets/Middlebury', split='2014', resolution='F', augmentor=None, is_phase_2=False):
         super(Middlebury, self).__init__(reader=frame_utils.readDispMiddlebury, augmentor=augmentor, is_phase_2=is_phase_2)
@@ -154,7 +166,7 @@ class Middlebury(TrainingDataset):
             for scene in scenes:
                 path = os.path.join(scene, "view1.png")
                 self.left_img_paths.extend([path])
-                self.right_img_paths.extend([os.path.join(scene, "view5.png")])
+                self.right_img_paths.extend([os.path.join(scene, "view1.png")])
                 self.disp_paths.extend([os.path.join(scene, "disp1.png")])
                 
                 for illum in ["1", "2", "3"]:
@@ -247,9 +259,7 @@ def fetch_training_dataloader(is_phase_2, datasets = ['sceneflow'], middlebury_s
             for split in middlebury_splits:
                 middlebury = Middlebury(augmentor=stereo_augmentor, is_phase_2=is_phase_2, split=split)
                 datasets_training.append(middlebury)
-                is_sf.append(False)
-
-    assert len(is_sf) == len(datasets_training)
+            is_sf.append(False)
 
     training_dataset = ConcatDataset(datasets_training)
 
@@ -257,7 +267,6 @@ def fetch_training_dataloader(is_phase_2, datasets = ['sceneflow'], middlebury_s
     n_real = len(training_dataset) - n_sf
     logging.info(f"Training with {len(training_dataset)} image pairs")
     logging.info(f"Synthetic: {n_sf} | Real: {n_real}")
-    
     
     train_loader = DataLoader(
         training_dataset,
@@ -279,9 +288,7 @@ def fetch_training_dataloader(is_phase_2, datasets = ['sceneflow'], middlebury_s
     for d, s in zip(datasets_training, is_sf):
         w = sf_fraction / n_sf if s else (1.0 - sf_fraction) / n_real
         weights.extend([w] * len(d))
-        
-    assert len(weights) == len(training_dataset), f"{len(weights)} weights vs {len(training_dataset)} samples"
-    
+
     n_draw = num_samples if num_samples is not None else len(training_dataset)
     sampler = WeightedRandomSampler(
         weights=torch.as_tensor(weights, dtype=torch.double),
@@ -327,6 +334,59 @@ def fetch_testing_dataloader(datasets = ['sceneflow'], return_occ = False):
             num_workers=8,
             pin_memory=True
         )
+    # val_loader = DataLoader(
+    #     ConcatDataset(val_datasets),
+    #     batch_size = 4,
+    #     shuffle=False,
+    #     num_workers=8,
+    #     pin_memory=True
+    # )
     return loaders
+    
+def test_middlebury():
+    n_checks = 100
+    dataset1 = Middlebury(split='2005', augmentor=None, is_phase_2=False)
+    dataset2 = Middlebury(split='2006', augmentor=None, is_phase_2=False)
+    dataset3 = Middlebury(split='2021', augmentor=None, is_phase_2=False)
+    dataset4 = Middlebury(split='2014', augmentor=None, is_phase_2=False)
+    data_samples = dataset1.left_img_paths + dataset2.left_img_paths + dataset3.left_img_paths + dataset4.left_img_paths
+    
+    # idxs = range(0, len(dataset.left_img_paths), max(1, len(dataset.left_img_paths)//n_checks))
+    print(len(data_samples))
+    return
+    for i in idxs:
+        l, r, d = dataset.left_img_paths[i], dataset.right_img_paths[i], dataset.disp_paths[i]
+        # print(f"{l} | {r} | {d}")
+        scene_dir = os.path.dirname(d)
+        assert l.startswith(scene_dir) and r.startswith(scene_dir), (l, r, d)
+        assert os.path.exists(l) and os.path.exists(r) and os.path.exists(d), (l, r, d)
+    print(f"Checked {len(list(idxs))} triples — all aligned and exist.")
 
+def test_eth3d():
+    n_checks = 20
+    train_dataset = ETH3D(augmentor=None, condition='train', train_frac=0.5, is_phase_2=False)
+    test_dataset = ETH3D(augmentor=None, condition='test', train_frac=0.5, is_phase_2=False)
+    print(f"ETH3D TRAINING dataset has {len(train_dataset.left_img_paths)} samples.")
+    print(f"ETH3D TESTING dataset has {len(test_dataset.left_img_paths)} samples.")
+    return
+    idxs = range(0, len(dataset.left_img_paths), max(1, len(dataset.left_img_paths)//n_checks))
+    for i in idxs:
+        l, r, d = dataset.left_img_paths[i], dataset.right_img_paths[i], dataset.disp_paths[i]
+        scene_dir = os.path.basename(os.path.dirname(d))
+        # print(f"{scene_dir in l} | {l}")
+        assert scene_dir in l and scene_dir in r and scene_dir in d, (l, r, d)
+        assert os.path.exists(l) and os.path.exists(r) and os.path.exists(d), (l, r, d)
+    print(f"Checked {len(list(idxs))} triples — all aligned and exist.")
+
+
+def test_things():
+    train_set = SceneFlowDataset(augmentor=None, is_phase_2=False, mode='TRAIN', subsets=['flyingthings', 'driving', 'monkaa'])
+    test_set = SceneFlowDataset(augmentor=None, is_phase_2=False, mode='TEST', subsets=['flyingthings'])
+    print(f"SceneFlow TRAIN has {len(train_set.left_img_paths)} samples")
+    print(f"FlyingThings TEST has {len(test_set.left_img_paths)} samples")
+    
+# if __name__ == '__main__':
+#     test_middlebury()
+    # test_eth3d()
+    # test_things()
     

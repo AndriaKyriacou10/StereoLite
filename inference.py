@@ -15,11 +15,10 @@ def calculate_error(disp_pred, disp_gt, valid_mask):
     pred_2d = disp_pred.squeeze()
     mask_2d = valid_mask.squeeze().bool()
     
-    # 2. Calculate squared error safely on pure 2D maps
-    error = (gt_2d - pred_2d) ** 2
+    error = torch.abs(gt_2d - pred_2d)
     
     # 3. Mask out the invalid regions
-    error[~mask_2d] = 0.0
+    error[~mask_2d] = float('nan') 
     
     return error
      
@@ -36,6 +35,8 @@ def get_prediction(model, device, dataset, idx, compute_cost_volume=False):
     disp_gt = disp_gt.to(device)
     valid_mask = valid_mask.to(device)
     
+    img1_disp = img1.clone()
+    
     padder = InputPadder(img1.shape, divis_by=32)
     img1, img2 = padder.pad(img1, img2)
     print(img1.shape)
@@ -45,17 +46,29 @@ def get_prediction(model, device, dataset, idx, compute_cost_volume=False):
     error = calculate_error(disp_pred, disp_gt, valid_mask)
     
     img1 = img1/255.0
-    
-    left_img_np = (img1.detach().cpu().squeeze().permute(1, 2, 0).numpy()).clip(0, 1)
-    
+
+    img1_disp = img1_disp/255.0    
+    left_img_np = (img1_disp.detach().cpu().squeeze().permute(1, 2, 0).numpy()).clip(0, 1)
     disp_pred_np = disp_pred.detach().cpu().squeeze().numpy()
     error_np = error.detach().cpu().squeeze().numpy()
+    
+    #vmax
+    gt_np = disp_gt.detach().cpu().numpy().squeeze()
+    vm_np = valid_mask.detach().cpu().numpy().squeeze().astype(bool)
+    vmax = float(np.percentile(gt_np[vm_np], 99)) if vm_np.any() else float(gt_np.max())
+    
+    print(f"left_img range: {left_img_np.min():.3f}-{left_img_np.max():.3f}") 
+    
+    gt_max = gt_np[vm_np].max() if vm_np.any() else float(gt_np.max())
+    
+    frac_over = (disp_pred_np > gt_max).mean()
+    print(f"gt_max={gt_max:.1f} | frac pred > gt_max: {frac_over:.3%} | pred_max={disp_pred.max():.1f} | vmax={vmax:.1f}")
     
     negative = np.sum(disp_pred_np < 0)
     print(f"Negative Disparities: {negative} | Total Pixels: {disp_pred_np.size}")
     
     print(f"Min Disp:{disp_pred.min()} | Max Disp:{disp_pred.max()} | Percenile: {np.percentile(disp_pred_np, [5, 25, 50, 75, 95])}")
-    return left_img_np, disp_pred_np, error_np
+    return left_img_np, disp_pred_np, error_np, disp_gt, valid_mask, vmax
     
 def parse_args():
     parser = argparse.ArgumentParser(description='Inference script for CustomLiteAnyStereo')
@@ -104,7 +117,8 @@ if __name__ == '__main__':
     for i, idx in enumerate(indices):
         
         print(f"--- Processing pair {i + 1}/10 (Dataset Index: {idx}) ---")
-        left_img, disp_pred, error_map = get_prediction(model, device, val_dataset, idx, compute_cost_volume=args.compute_cost_volume)
+        left_img, disp_pred, error_map, disp_gt, valid_mask, vmax  = get_prediction(model, device, val_dataset, idx, compute_cost_volume=args.compute_cost_volume)
+        
         
         plt.figure(figsize=(18, 5)) 
         # plt.imshow(disp_pred < 0, cmap='gray')
@@ -118,13 +132,15 @@ if __name__ == '__main__':
 
         plt.subplot(1, 3, 2)
         plt.title("Predicted Disparity")
-        plt.imshow(disp_pred, cmap='magma') 
+        plt.imshow(disp_pred, cmap='magma', vmin=0, vmax=vmax) 
         plt.colorbar(fraction=0.046, pad=0.04) 
         plt.axis('off')
 
         plt.subplot(1, 3, 3)
-        plt.title("Squared Error (>0 indicates failure)")
-        plt.imshow(error_map, cmap='hot', vmin=0, vmax=50) 
+        err_cmap = plt.cm.hot.copy()
+        err_cmap.set_bad(color='dimgray')  # Set NaN values to gray
+        plt. title("Absolute Error |disp_gt - disp_pred|")
+        plt.imshow(error_map, cmap=err_cmap, vmin=0, vmax=np.nanpercentile(error_map, 95)) 
         plt.colorbar(fraction=0.046, pad=0.04)
         plt.axis('off')
 
@@ -136,5 +152,6 @@ if __name__ == '__main__':
         save_path = f"{out_dir}/inference_analysis_{idx}_{tag}.png"
         plt.savefig(save_path, dpi=300, bbox_inches='tight')
         plt.close()
+        
         
     print(f"All {len(indices)} inferences completed and saved")

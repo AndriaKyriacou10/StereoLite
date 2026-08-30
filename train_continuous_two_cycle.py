@@ -156,8 +156,8 @@ def run_validation(best_epe, model, val_loaders, device, logger, step, optimizer
     checkpoint[f'best_epe_{cv_tag}'] = best_epe
 
     if tag == 'best':
-        torch.save(checkpoint, f"{save_dir}/train_continuous_two_cycle_{tag}_{cv_tag}_{current_time}.pth")
-    torch.save(checkpoint, f"{save_dir}/train_continuous_two_cycle_latest_{cv_tag}.pth")
+        torch.save(checkpoint, f"{save_dir}/train_continuous_two_cycle_{tag}_{cv_tag}_ContextNet.pth")
+    torch.save(checkpoint, f"{save_dir}/train_continuous_two_cycle_latest_{cv_tag}_ContextNet.pth")
     return val_epe, best_epe
 
 def train(args):
@@ -165,7 +165,7 @@ def train(args):
         json.dump(vars(args), file, sort_keys=True, indent=4)
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-    model = CustomLiteAnyStereo(scale_right=args.scale_right).to(device)
+    model = CustomLiteAnyStereo(scale_right=args.scale_right, layer2=args.layer2).to(device)
 
     train_loader = fetch_training_dataloader(is_phase_2=False, datasets=['sceneflow', 'middlebury', 'eth3d'])
     val_loader = fetch_testing_dataloader(datasets=['sceneflow', 'middlebury', 'eth3d'])
@@ -204,7 +204,7 @@ def train(args):
         logging.info(f"Resuming from step: {step}")
 
         current_time = datetime.now().strftime('%b%d_%H-%M-%S')
-        logger = CustomLogger(log_dir=checkpoint.get('log_dir', f'./runs/train_continuous_two_cycle_{current_time}'), flush_freq=100, step = step)
+        logger = CustomLogger(log_dir=checkpoint.get('log_dir', f'./runs/train_continuous_two_cycle_{current_time}_ContextNet'), flush_freq=100, step = step)
 
     else:
         step = 0
@@ -335,11 +335,12 @@ if __name__ == '__main__':
     parser.add_argument('--weight_decay', type=float, default=0.00001)
     parser.add_argument('--save_dir', default='./continuous_training/checkpoints_continuous_two_cycle')
     parser.add_argument('--resume_ckpt', default=None, help='Path to checkpoint to resume training from')
-
+    parser.add_argument('--layer2', action='store_true', help='Whether to use the second layer of the context network')
+    
     args = parser.parse_args()
     os.makedirs(args.save_dir, exist_ok=True)
 
-    log_path = './continuous_training/continuous_training_two_cycle(RECOVER)_30H.log'
+    log_path = './continuous_training/continuous_training_two_cycle(RECOVER)__ContextNet.log'
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s %(levelname)-8s [%(filename)s:%(lineno)d] %(message)s',

@@ -11,11 +11,11 @@ from core.utils.utils import InputPadder
 from collections import defaultdict
 
 class CustomLiteAnyStereo(nn.Module):
-    def __init__(self,  scale_right=0.3):
+    def __init__(self,  scale_right=0.3, layer2=False):
         super(CustomLiteAnyStereo, self).__init__()
         self.fnet = FeatureNet()
        
-        self.context_net = ContextNet(scale_right)
+        self.context_net = ContextNet(scale_right, layer2)
         
         disp_channels = 1
         cv_channels = 192 // 4  # max_disp // 4 = 192 // 4 = 48
@@ -54,7 +54,7 @@ class CustomLiteAnyStereo(nn.Module):
         up_disp = up_disp.permute(0, 1, 4, 2, 5, 3)
         return up_disp.reshape(N, 1, scale * H, scale * W)
 
-    def forward(self, left, right, max_disp=192, test_mode=False, kd_mode=False, compute_cost_volume=True):
+    def forward(self, left, right, max_disp=192, test_mode=False, kd_mode=False, compute_cost_volume=True, iterations=8):
         left = (2 * (left / 255.0) - 1.0).contiguous()
         right = (2 * (right / 255.0) - 1.0).contiguous()
         
@@ -74,7 +74,6 @@ class CustomLiteAnyStereo(nn.Module):
             cv = torch.zeros((left.shape[0], max_disp // 4, left.shape[2] // 4, left.shape[3] // 4), device=left.device, dtype=left.dtype)
         
         # === REFINEMENT NETWORK === #
-        iterations = 8
         disp = init_disp
         hidden_state = context_features
         for iters in range(iterations):

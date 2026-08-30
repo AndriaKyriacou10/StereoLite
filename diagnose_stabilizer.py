@@ -139,7 +139,7 @@ if __name__ == "__main__":
     
     os.makedirs(args.output_dir, exist_ok=True)
     current_time = datetime.now().strftime('%b%d_%H-%M-%S')
-    log_path = os.path.join(args.output_dir, f'stats_stabilizer_{current_time}_{args.name}_{args.dataset}.log')
+    log_path = os.path.join(args.output_dir, f'stats_stabilizer_{current_time}_{args.name}_{args.dataset}_{args.max_disp}.log')
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s %(levelname)-8s [%(filename)s:%(lineno)d] %(message)s',
@@ -160,6 +160,8 @@ if __name__ == "__main__":
         dataset = datasets.SintelStereoVideo(mode="training",
                                          dstype=args.dataset.split("_")[1],
                                          max_disp=args.max_disp)
+    logging.info(f"Dataset: {args.dataset} | Number of scenes: {len(dataset)} | Max disp: {args.max_disp}")
+    
     # Evaluate
     rows = []
     for scene_idx in range(len(dataset)):
