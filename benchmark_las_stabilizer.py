@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 Computational-efficiency benchmark for the LAS + BiDAStabilizer pipeline.
 
@@ -135,6 +136,75 @@ def stabilizer_forward(stb, video, disps, kernel_size, amp):
 
 
 # --------------------------------------------------------------------------- #
+# flow isolation
+# --------------------------------------------------------------------------- #
+
+class FlowCache:
+    """Intercepts the frozen SEA-RAFT module so its cost can be subtracted out.
+
+    The benchmark replays one fixed clip, so every pass computes byte-identical
+    flow. We therefore record the real outputs on the first pass, then replay
+    them from a cache: the measured region afterwards contains the stabilizer
+    trunk (feat_extract, forward/backward resblocks, fusion, conv_hr, conv_last)
+    and nothing else.
+
+    Caveats, both of which matter for how the resulting row is read:
+      * Peak memory during replay is NOT the trunk's footprint -- the cache
+        holds every flow tensor resident for the whole pass, which the real
+        pipeline does not. Take the time from this stage, not the memory.
+      * If the trunk mutates a flow tensor in place, replay feeds it the
+        already-mutated version. That changes outputs, not shapes or control
+        flow, so timing stays valid; do not use this mode to produce disparity.
+    """
+
+    def __init__(self, module, method="forward"):
+        self.module = module
+        self.method = method
+        self.orig = getattr(module, method)
+        self.cache = []
+        self.idx = 0
+        self.recording = True
+
+    def __call__(self, *args, **kwargs):
+        if self.recording:
+            out = self.orig(*args, **kwargs)
+            self.cache.append(out)
+            return out
+        # Cache is sized by the recording pass; a replay pass that asks for
+        # more calls than were recorded means control flow is data-dependent,
+        # which would invalidate the whole subtraction.
+        if self.idx >= len(self.cache):
+            raise RuntimeError(
+                f"replay wanted call {self.idx + 1} but only {len(self.cache)} "
+                "were recorded -- flow call count is not deterministic")
+        out = self.cache[self.idx]
+        self.idx += 1
+        return out
+
+    def install(self):
+        setattr(self.module, self.method, self)
+        return self
+
+    def restore(self):
+        setattr(self.module, self.method, self.orig)
+
+    def begin_replay(self):
+        self.recording = False
+        self.idx = 0
+
+    def rewind(self):
+        self.idx = 0
+
+
+def resolve_flow_module(stb, path):
+    """Walk a dotted attribute path, e.g. 'raft' or 'raft.model'."""
+    mod = stb
+    for part in path.split("."):
+        mod = getattr(mod, part)
+    return mod
+
+
+# --------------------------------------------------------------------------- #
 # measurement
 # --------------------------------------------------------------------------- #
 
@@ -220,6 +290,41 @@ def main():
         lambda: stabilizer_forward(stb, left, disps, args.kernel_size, args.amp),
         args.warmup, args.repeats, "stabilizer")
     results["stabilizer"]["time_ms_per_frame"] = results["stabilizer"]["time_ms_mean"] / T
+
+    # 3b. stabilizer trunk with SEA-RAFT replayed from cache, isolating the
+    #     trained 0.74M trunk from the frozen flow estimator it depends on.
+    if not args.skip_flow_ablation:
+        flow_mod = resolve_flow_module(stb, args.flow_module)
+        cache = FlowCache(flow_mod, args.flow_method).install()
+        try:
+            stabilizer_forward(stb, left, disps, args.kernel_size, args.amp)
+            torch.cuda.synchronize()
+            n_calls = len(cache.cache)
+            if n_calls == 0:
+                raise RuntimeError(
+                    f"'{args.flow_module}.{args.flow_method}' was never called -- "
+                    "the trunk reaches the flow estimator by another path. Try "
+                    "--flow_module raft.model, or grep forward_batch for the "
+                    "call site.")
+            logging.info("[flow] intercepted %d calls for T=%d (~%.1f per frame)",
+                         n_calls, T, n_calls / T)
+
+            cache.begin_replay()
+            results["stabilizer_no_flow"] = measure(
+                lambda: (cache.rewind(),
+                         stabilizer_forward(stb, left, disps,
+                                            args.kernel_size, args.amp))[1],
+                args.warmup, args.repeats, "stabilizer_no_flow")
+            results["stabilizer_no_flow"]["time_ms_per_frame"] = \
+                results["stabilizer_no_flow"]["time_ms_mean"] / T
+            results["stabilizer_no_flow"]["flow_calls"] = n_calls
+            # Memory here includes the resident cache; see FlowCache docstring.
+            results["stabilizer_no_flow"]["peak_mem_gb"] = None
+        finally:
+            cache.restore()
+            del cache
+            torch.cuda.empty_cache()
+
     del disps
     torch.cuda.empty_cache()
 
@@ -280,12 +385,29 @@ def print_report(report):
     for key, label in [("las_single_frame", "LAS (1 frame)"),
                        ("las_clip", f"LAS ({c['frames']} frames)"),
                        ("stabilizer", "Stabilizer"),
+                       ("stabilizer_no_flow", "  trunk only"),
                        ("end_to_end", "End to end")]:
+        if key not in s:
+            continue
         r = s[key]
         per_frame = f"{r['time_ms_per_frame']:.2f}" if "time_ms_per_frame" in r else "-"
+        mem = f"{r['peak_mem_gb']:.2f}" if r["peak_mem_gb"] is not None else "n/a"
         print(f"{label:<20}{r['time_ms_mean']:>13.2f} ± {r['time_ms_std']:<5.2f}"
-              f"{per_frame:>12}{r['peak_mem_gb']:>15.2f}")
+              f"{per_frame:>12}{mem:>15}")
     print("-" * 78)
+
+    if "stabilizer_no_flow" in s:
+        trunk = s["stabilizer_no_flow"]["time_ms_mean"]
+        total = s["stabilizer"]["time_ms_mean"]
+        flow = total - trunk
+        n = s["stabilizer_no_flow"]["flow_calls"]
+        print(f"Of the stabilizer's {total:.0f} ms, SEA-RAFT accounts for "
+              f"{flow:.0f} ms ({100.0 * flow / total:.0f}%) across {n} flow calls "
+              f"({flow / max(n, 1):.1f} ms each); the trained 0.74M trunk costs "
+              f"{trunk:.0f} ms ({100.0 * trunk / total:.0f}%).")
+        print("  ('trunk only' memory is n/a -- the replay cache holds every flow "
+              "tensor resident, which the real pipeline does not.)")
+        print("-" * 78)
 
     overhead_ms = s["end_to_end"]["time_ms_mean"] - s["las_clip"]["time_ms_mean"]
     overhead_pct = 100.0 * overhead_ms / s["las_clip"]["time_ms_mean"]
@@ -314,6 +436,13 @@ def parse_args():
     ap.add_argument("--amp", action="store_true",
                     help="fp16 autocast. Off by default -- match whatever "
                          "evaluate() used, and state it in the thesis table")
+    ap.add_argument("--flow_module", default="raft",
+                    help="dotted path to the flow module on the stabilizer, "
+                         "e.g. 'raft' or 'raft.model'")
+    ap.add_argument("--flow_method", default="forward",
+                    help="method on --flow_module that the trunk calls")
+    ap.add_argument("--skip_flow_ablation", action="store_true",
+                    help="omit the trunk-only stage")
     ap.add_argument("--out", default=None, help="path for JSON output")
     return ap.parse_args()
 

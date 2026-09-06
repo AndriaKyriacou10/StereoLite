@@ -156,8 +156,8 @@ def run_validation(best_epe, model, val_loaders, device, logger, step, optimizer
     checkpoint[f'best_epe_{cv_tag}'] = best_epe
 
     if tag == 'best':
-        torch.save(checkpoint, f"{save_dir}/train_continuous_two_cycle_{tag}_{cv_tag}_ContextNet.pth")
-    torch.save(checkpoint, f"{save_dir}/train_continuous_two_cycle_latest_{cv_tag}_ContextNet.pth")
+        torch.save(checkpoint, f"{save_dir}/train_continuous_two_cycle_{tag}_{cv_tag}_layer1.pth")
+    torch.save(checkpoint, f"{save_dir}/train_continuous_two_cycle_latest_{cv_tag}_layer1.pth")
     return val_epe, best_epe
 
 def train(args):
@@ -204,7 +204,7 @@ def train(args):
         logging.info(f"Resuming from step: {step}")
 
         current_time = datetime.now().strftime('%b%d_%H-%M-%S')
-        logger = CustomLogger(log_dir=checkpoint.get('log_dir', f'./runs/train_continuous_two_cycle_{current_time}_ContextNet'), flush_freq=100, step = step)
+        logger = CustomLogger(log_dir=checkpoint.get('log_dir', f'./runs/train_continuous_two_cycle_{current_time}_layer1'), flush_freq=100, step = step)
 
     else:
         step = 0
@@ -214,7 +214,7 @@ def train(args):
 
         logging.info("Initializing TensorBoard Logger...")
         current_time = datetime.now().strftime('%b%d_%H-%M-%S')
-        logger = CustomLogger(log_dir=f'./runs/train_continuous_two_cycle_{current_time}_cutoff_90k', flush_freq=100, step = step)
+        logger = CustomLogger(log_dir=f'./runs/train_continuous_two_cycle_{current_time}_cutoff_90k_layer1', flush_freq=100, step = step)
 
 
     logging.info(f"Starting training from step: {step}")
@@ -340,7 +340,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
     os.makedirs(args.save_dir, exist_ok=True)
 
-    log_path = './continuous_training/continuous_training_two_cycle(RECOVER)__ContextNet.log'
+    log_path = './continuous_training/continuous_training_two_cycle(RECOVER)__Layer1.log'
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s %(levelname)-8s [%(filename)s:%(lineno)d] %(message)s',
@@ -349,4 +349,9 @@ if __name__ == '__main__':
             logging.StreamHandler()
         ]
     )
+    if args.layer2:
+        logging.info("Using Layer 2 of the context network.")
+    else:
+        logging.info("Using Layer 1 of the context network.")
+    
     train(args)

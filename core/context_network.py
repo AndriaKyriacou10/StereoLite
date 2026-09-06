@@ -40,6 +40,12 @@ class ContextNet(nn.Module):
             del self.model.layer4
             del self.model.avgpool
             del self.model.fc
+        else:
+            del self.model.layer2
+            del self.model.layer3
+            del self.model.layer4
+            del self.model.avgpool
+            del self.model.fc
     
     def forward(self, left, right):
         concat_imgs = torch.cat([left, right], dim=1)
