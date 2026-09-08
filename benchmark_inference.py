@@ -7,11 +7,12 @@ import time
 import numpy as np
 from core.utils.utils import InputPadder
 import flops_count
-from fvcore.nn import FlopCountAnalysis 
+from ptflops import get_model_complexity_info
+import re
 
 @torch.no_grad()
 def benchmark_forward(model, device, shape=(1, 3, 375, 1242),
-                       compute_cost_volume=True, warmup=15, iters=50, is_original=False):
+                       compute_cost_volume=True, warmup=15, iters=50, is_original=False, compute_flops=False):
     model.eval()
     torch.backends.cudnn.benchmark = True  # let it pick fast kernels for fixed shape
 
@@ -21,6 +22,31 @@ def benchmark_forward(model, device, shape=(1, 3, 375, 1242),
     padder = InputPadder(left.shape, divis_by=32)
     left, right = padder.pad(left, right)
     
+    if compute_flops:
+        _, C, H, W = left.shape          # padded dims
+
+        def input_constructor(input_res):
+            c, h, w = input_res
+            kwargs = {
+                "left":  torch.randn(1, c, h, w, device=device),
+                "right": torch.randn(1, c, h, w, device=device),
+                "test_mode": True,
+            }
+            if not is_original:
+                kwargs["compute_cost_volume"] = compute_cost_volume
+                kwargs["iterations"] = 8
+            return kwargs
+
+        macs, params = get_model_complexity_info(
+            model, (C, H, W),
+            input_constructor=input_constructor,
+            as_strings=False,
+            print_per_layer_stat=False,
+            verbose=True,
+        )
+        print(f"{macs/1e9:.3f} GMACs | {2*macs/1e9:.3f} GFLOPs | {params/1e6:.3f}M params")
+        return
+        
     def run():
         if is_original:
             return model(left, right, test_mode=True)
@@ -61,10 +87,12 @@ def parse_args():
     p.add_argument('--warmup', type=int, default=15)
     p.add_argument('--iters', type=int, default=50)
     p.add_argument('--out_csv', type=str, default='./benchmark_results.csv')
+    p.add_argument('--layer2', action='store_true', help='Use ContextNet with a second layer')
+    p.add_argument('--compute_flops', action='store_true', help='Compute FLOPs of the model')
     return p.parse_args()
 
-def build(ckpt_path, device):
-    model = CustomLiteAnyStereo().to(device)
+def build(ckpt_path, device, layer2):
+    model = CustomLiteAnyStereo(layer2=layer2).to(device)
     if ckpt_path:
         model.load_state_dict(
             torch.load(ckpt_path, map_location=device)['model_state'], strict=True)
@@ -94,16 +122,21 @@ if __name__ == '__main__':
     
     for cv_flag in [True, False]:
         ckpt = args.ckpt_cv if cv_flag else args.ckpt_no_cv
-        model = build(ckpt, device)
+        model = build(ckpt, device, layer2=args.layer2)
         if not cv_flag:
             for name in ['fnet', 'cost_stem_3d', 'cost_agg_2d']:
                 setattr(model, name, nn.Identity())
             torch.cuda.empty_cache()
-        mean_ms, std_ms, peak_mem, parameter_count = benchmark_forward(
-            model, device, shape=(1, 3, *args.shapes), compute_cost_volume=cv_flag,
-            warmup=args.warmup, iters=args.iters, is_original=False)
-        rows.append({'model': 'CV' if cv_flag else 'no-CV', 'mean_ms': mean_ms,
-                    'std_ms': std_ms, 'peak_mem_MB': peak_mem, 'parameter_count_M': parameter_count})
+            
+        if args.compute_flops:
+            benchmark_forward(model, device, shape=(1, 3, *args.shapes), compute_cost_volume=cv_flag, 
+                              warmup=args.warmup, iters=args.iters, is_original=False, compute_flops=args.compute_flops)
+        else:
+            mean_ms, std_ms, peak_mem, parameter_count = benchmark_forward(
+                model, device, shape=(1, 3, *args.shapes), compute_cost_volume=cv_flag,
+                warmup=args.warmup, iters=args.iters, is_original=False)
+            rows.append({'model': 'CV' if cv_flag else 'no-CV', 'mean_ms': mean_ms,
+                        'std_ms': std_ms, 'peak_mem_MB': peak_mem, 'parameter_count_M': parameter_count})
         del model
         torch.cuda.empty_cache()
         torch.cuda.reset_peak_memory_stats()
@@ -115,12 +148,16 @@ if __name__ == '__main__':
     orig_model.load_state_dict(torch.load(args.ckpt_original, map_location=device), strict=True)
     orig_model.eval()
     
-    mean_ms, std_ms, peak_mem, parameter_count = benchmark_forward(
-        orig_model, device, shape=(1, 3, *args.shapes), is_original=True,
-        warmup=args.warmup, iters=args.iters)
-    rows.append({'model': 'original_LAS', 'mean_ms': mean_ms, 'std_ms': std_ms, 'peak_mem_MB': peak_mem, 'parameter_count_M': parameter_count})
-    
-    with open(args.out_csv, 'w', newline='') as f:
-        writer = csv.DictWriter(f, fieldnames=rows[0].keys())
+    if args.compute_flops:
+        benchmark_forward( orig_model, device, shape=(1, 3, *args.shapes), compute_cost_volume=True, 
+                          warmup=args.warmup, iters=args.iters, is_original=True, compute_flops=args.compute_flops)
+    else:
+        mean_ms, std_ms, peak_mem, parameter_count = benchmark_forward(
+            orig_model, device, shape=(1, 3, *args.shapes), is_original=True,
+            warmup=args.warmup, iters=args.iters)
+        rows.append({'model': 'original_LAS', 'mean_ms': mean_ms, 'std_ms': std_ms, 'peak_mem_MB': peak_mem, 'parameter_count_M': parameter_count})
+        
+        with open(args.out_csv, 'w', newline='') as f:
+            writer = csv.DictWriter(f, fieldnames=rows[0].keys())
         writer.writeheader()
         writer.writerows(rows)
