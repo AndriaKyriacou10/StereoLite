@@ -12,7 +12,7 @@ import re
 
 @torch.no_grad()
 def benchmark_forward(model, device, shape=(1, 3, 375, 1242),
-                       compute_cost_volume=True, warmup=15, iters=50, is_original=False, compute_flops=False):
+                       compute_cost_volume=True, warmup=15, iters=50, is_original=False, gru_iterations=8, compute_flops=False):
     model.eval()
     torch.backends.cudnn.benchmark = True  # let it pick fast kernels for fixed shape
 
@@ -51,7 +51,7 @@ def benchmark_forward(model, device, shape=(1, 3, 375, 1242),
         if is_original:
             return model(left, right, test_mode=True)
         else:
-            return model(left, right, test_mode=True, compute_cost_volume=compute_cost_volume)
+            return model(left, right, test_mode=True, compute_cost_volume=compute_cost_volume, iterations=gru_iterations)
 
     
     # warm-up: not timed
@@ -87,6 +87,7 @@ def parse_args():
     p.add_argument('--warmup', type=int, default=15)
     p.add_argument('--iters', type=int, default=50)
     p.add_argument('--out_csv', type=str, default='./benchmark_results.csv')
+    p.add_argument('--gru_iters', typr=int, default=8, help='Number of GRU iterations for the original LAS model')
     p.add_argument('--layer2', action='store_true', help='Use ContextNet with a second layer')
     p.add_argument('--compute_flops', action='store_true', help='Compute FLOPs of the model')
     return p.parse_args()
@@ -127,6 +128,11 @@ if __name__ == '__main__':
             for name in ['fnet', 'cost_stem_3d', 'cost_agg_2d']:
                 setattr(model, name, nn.Identity())
             torch.cuda.empty_cache()
+        mean_ms, std_ms, peak_mem, parameter_count = benchmark_forward(
+            model, device, shape=(1, 3, *args.shapes), compute_cost_volume=cv_flag,
+            warmup=args.warmup, iters=args.iters, is_original=False, gru_iterations=args.gru_iters)
+        rows.append({'model': 'CV' if cv_flag else 'no-CV', 'mean_ms': mean_ms,
+                    'std_ms': std_ms, 'peak_mem_MB': peak_mem, 'parameter_count_M': parameter_count})
             
         if args.compute_flops:
             benchmark_forward(model, device, shape=(1, 3, *args.shapes), compute_cost_volume=cv_flag, 
@@ -148,6 +154,13 @@ if __name__ == '__main__':
     orig_model.load_state_dict(torch.load(args.ckpt_original, map_location=device), strict=True)
     orig_model.eval()
     
+    mean_ms, std_ms, peak_mem, parameter_count = benchmark_forward(
+        orig_model, device, shape=(1, 3, *args.shapes), is_original=True,
+        warmup=args.warmup, iters=args.iters, gru_iterations=args.gru_iters)
+    rows.append({'model': 'original_LAS', 'mean_ms': mean_ms, 'std_ms': std_ms, 'peak_mem_MB': peak_mem, 'parameter_count_M': parameter_count})
+    
+    with open(args.out_csv, 'w', newline='') as f:
+        writer = csv.DictWriter(f, fieldnames=rows[0].keys())
     if args.compute_flops:
         benchmark_forward( orig_model, device, shape=(1, 3, *args.shapes), compute_cost_volume=True, 
                           warmup=args.warmup, iters=args.iters, is_original=True, compute_flops=args.compute_flops)
