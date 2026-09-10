@@ -22,3 +22,10 @@ eval_results_video/*/*.csv
 eval_results_video/*/*.json
 scale_right_1.0/*.pth
 continuous_training
+eval_results_video/
+finetune_real/
+finetune_scripts/
+inference_images/
+stats_stb/
+temporal_diff/
+*.csv
