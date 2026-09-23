@@ -3,8 +3,9 @@ import logging
 from sympy import to_cnf
 import torch
 import numpy as np
-from core.liteanystereo import CustomLiteAnyStereo, original_LAS
-from core.training_datasets import ETH3D, fetch_testing_dataloader, Middlebury, SceneFlowDataset
+from core.stereolite import StereoLite
+from core.liteanystereo import original_LAS
+from core.stereo_datasets import ETH3D, fetch_testing_dataloader, Middlebury, SceneFlowDataset
 from core.utils.utils import InputPadder
 from PIL import Image
 
@@ -28,7 +29,7 @@ def validate_flyingthings(model, cost_volume=False, layer2=False):
         padder = InputPadder(img1.shape, divis_by=32)
         img1, img2 = padder.pad(img1, img2)
 
-        if isinstance(model, CustomLiteAnyStereo):
+        if isinstance(model, StereoLite):
             disp_pred = model(img1, img2, test_mode=True, compute_cost_volume=cost_volume)
         else:
             disp_pred = model(img1, img2, test_mode=True)
@@ -84,7 +85,7 @@ def validate_eth3d(model, cost_volume = False, layer2 = False):
         padder = InputPadder(img1.shape, divis_by=32)
         img1, img2 = padder.pad(img1, img2)
         
-        if isinstance(model, CustomLiteAnyStereo):
+        if isinstance(model, StereoLite):
             disp_pred = model(img1, img2, test_mode = True, compute_cost_volume = cost_volume)
         else:
             disp_pred = model(img1, img2, test_mode = True)
@@ -141,7 +142,7 @@ def validate_middlebury(model, split='MiddEval3', resolution='F', cost_volume = 
         padder = InputPadder(img1.shape, divis_by=32)
         img1, img2 = padder.pad(img1, img2)
         
-        if isinstance(model, CustomLiteAnyStereo):
+        if isinstance(model, StereoLite):
             disp_pred = model(img1, img2, test_mode = True, compute_cost_volume = cost_volume)
         else:
             disp_pred = model(img1, img2, test_mode = True)
@@ -192,7 +193,7 @@ if __name__ == '__main__':
     
     if args.model == 'Custom':
     
-        model = CustomLiteAnyStereo(layer2=args.layer2)
+        model = StereoLite(layer2=args.layer2)
         if args.ckpt is not None:
             logging.info("Loading checkpoint...")
             weights = torch.load(args.ckpt, map_location=device)

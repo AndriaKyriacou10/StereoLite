@@ -3,7 +3,7 @@ import pandas as pd
 import math
 import statistics
 
-import core.stereo_datasets as datasets
+import core.video_datasets as datasets
 import numpy as np
 
 # with open('./eval_results_video/per_scene_results_LAS_stabilizer_sintel_clean_TEST1.json') as f:

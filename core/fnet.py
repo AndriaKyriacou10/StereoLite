@@ -1,3 +1,5 @@
+# Copied from: LiteAnyStereo (https://github.com/TomTomTommi/LiteAnyStereo/tree/main)
+# MIT License
 import torch
 import torch.nn as nn
 from torch.nn import ReLU6

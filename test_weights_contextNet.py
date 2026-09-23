@@ -2,7 +2,7 @@ import argparse
 import torch
 import numpy as np
 from core.liteanystereo import CustomLiteAnyStereo
-from core.training_datasets import SceneFlowDataset, ETH3D, Middlebury
+from core.stereo_datasets import SceneFlowDataset, ETH3D, Middlebury
 from core.utils.utils import InputPadder
 from core.submodule import build_correlation_volume
 import torch.nn.functional as F

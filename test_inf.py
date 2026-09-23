@@ -1,5 +1,5 @@
 import numpy as np
-from core.training_datasets import SceneFlowDataset, ETH3D, Middlebury
+from core.stereo_datasets import SceneFlowDataset, ETH3D, Middlebury
 
 def scan_for_bad_disp(dataset, name, n=None):
     n = len(dataset)

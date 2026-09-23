@@ -3,7 +3,7 @@ from ast import arg
 import torch
 import matplotlib.pyplot as plt
 from core.liteanystereo import CustomLiteAnyStereo
-from core.training_datasets import TrainingDataset, SceneFlowDataset, ETH3D, Middlebury
+from core.stereo_datasets import TrainingDataset, SceneFlowDataset, ETH3D, Middlebury
 import numpy as np
 import argparse
 from core.utils.utils import InputPadder

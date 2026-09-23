@@ -1,29 +1,5 @@
-#!/usr/bin/env python3
 """
 Computational-efficiency benchmark for the LAS + BiDAStabilizer pipeline.
-
-Reports trainable parameters, peak GPU memory and inference latency for four
-stages measured independently:
-
-  1. las_single_frame  - one stereo pair, nothing accumulated. This is the
-                         number comparable to BiDA Tab. 11's image-based rows
-                         (RAFTStereo 5.4G, IGEVStereo 4.6G), which are quoted
-                         at a single-frame footprint because those methods
-                         process frames independently.
-  2. las_clip          - the full T-frame loop including the accumulated
-                         disparity stack, i.e. what LAS actually costs inside
-                         the pipeline.
-  3. stabilizer        - the clip-level forward_batch() call alone, given
-                         precomputed disparities. Comparable to the
-                         BiDAStabilizer row (0.7M / 13.8G).
-  4. end_to_end        - both stages back to back. This is the headline
-                         "LAS + stabilizer" figure; 1-3 explain where it
-                         comes from.
-
-Timing uses paired CUDA events with explicit synchronisation. Peak memory uses
-max_memory_allocated() with the counter reset immediately before each measured
-call, after warm-up, so one-off cuDNN workspace allocations are excluded.
-
 Example
 -------
 python benchmark_las_stabilizer.py \

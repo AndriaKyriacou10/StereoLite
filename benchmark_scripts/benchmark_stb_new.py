@@ -1,36 +1,5 @@
-#!/usr/bin/env python3
 """
-Computational-efficiency benchmark for the LAS + BiDAStabilizer pipeline.
-
-Reports trainable parameters, peak GPU memory and inference latency for four
-stages measured independently:
-
-  1. las_single_frame  - one stereo pair, nothing accumulated. This is the
-                         number comparable to BiDA Tab. 11's image-based rows
-                         (RAFTStereo 5.4G, IGEVStereo 4.6G), which are quoted
-                         at a single-frame footprint because those methods
-                         process frames independently.
-  2. las_clip          - the full T-frame loop including the accumulated
-                         disparity stack, i.e. what LAS actually costs inside
-                         the pipeline.
-  3. stabilizer        - the clip-level forward_batch() call alone, given
-                         precomputed disparities. Comparable to the
-                         BiDAStabilizer row (0.7M / 13.8G).
-  4. end_to_end        - both stages back to back. This is the headline
-                         "LAS + stabilizer" figure; 1-3 explain where it
-                         comes from.
-
-Timing uses paired CUDA events with explicit synchronisation. Peak memory uses
-max_memory_allocated() with the counter reset immediately before each measured
-call, after warm-up, so one-off cuDNN workspace allocations are excluded.
-
-Example
--------
-python benchmark_las_stabilizer.py \
-    --ckpt_las ./checkpoints/LiteAnyStereo.pth \
-    --ckpt_stb ./checkpoints/model_LAS_stabilizer_035000.pth \
-    --frames 20 --height 720 --width 1280 \
-    --repeats 10 --out ./eval_results_video/efficiency.json
+Include Optical Flow in BidaStabilizer + LAS pipeline benchmark
 """
 
 import argparse
@@ -140,36 +109,6 @@ def stabilizer_forward(stb, video, disps, kernel_size, amp):
 # --------------------------------------------------------------------------- #
 
 class FlowInterceptor:
-    """Wraps the frozen SEA-RAFT module to measure or elide its cost.
-
-    Three modes:
-
-      time    call the real module, but bracket each call with paired CUDA
-              events. Events are recorded on the stream and only read after a
-              single synchronise at end of pass, so per-call timing costs one
-              sync per pass rather than one per call -- the pipeline is barely
-              perturbed. This is the direct measurement of flow cost.
-
-      record  call the real module and stash outputs, to seed replay.
-
-      replay  return stashed outputs instead of computing. What remains in the
-              measured region is the trained trunk (feat_extract, forward and
-              backward resblocks, fusion, conv_hr, conv_last) alone.
-
-    Timing directly beats subtracting trunk from total: subtraction takes a
-    difference of two large noisy numbers, whereas the events measure flow
-    positively. Running both gives a consistency check -- flow + trunk should
-    reconstruct the full stabilizer time, and a large residual means the
-    interception missed a call path.
-
-    Caveats on replay:
-      * Peak memory during replay is NOT the trunk's footprint -- the stash
-        holds every flow tensor resident for the whole pass, which the real
-        pipeline does not. Take time from that stage, not memory.
-      * If the trunk mutates a flow tensor in place, replay feeds it the
-        already-mutated version. That changes values, not shapes or control
-        flow, so timing stays valid; do not use replay to produce disparity.
-    """
 
     TIME, RECORD, REPLAY = "time", "record", "replay"
 

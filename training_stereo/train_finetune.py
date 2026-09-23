@@ -14,8 +14,8 @@ from torch.utils.data import DataLoader, ConcatDataset
 from tqdm import tqdm
 import torch.backends.cudnn as cudnn
 
-from core.liteanystereo import LiteAnyStereo
-import core.stereo_datasets as datasets
+from core.liteanystereo import original_LAS
+import core.video_datasets as datasets
 
 
 def filter_missing_files(dataset, name="Dataset"):
@@ -158,7 +158,7 @@ def main():
         pin_memory=True
     )   
     
-    model = LiteAnyStereo().to(device)
+    model = original_LAS().to(device)
     
     checkpoint_path = './checkpoints/LiteAnyStereo_MIX_Stage2.pth'
     checkpoint = torch.load(checkpoint_path, map_location=device)

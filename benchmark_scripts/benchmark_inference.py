@@ -1,8 +1,13 @@
+'''
+StereoLite and original LiteAnyStereo(LAS) inference benchmark script measuring inference time, peak memory and paramenter count.
+'''
+
 import torch
 import argparse, csv
 import torch
 import torch.nn as nn
-from core.liteanystereo import CustomLiteAnyStereo, original_LAS
+from core.liteanystereo import original_LAS
+from core.stereolite import StereoLite
 import time
 import numpy as np
 from core.utils.utils import InputPadder
@@ -93,7 +98,7 @@ def parse_args():
     return p.parse_args()
 
 def build(ckpt_path, device, layer2):
-    model = CustomLiteAnyStereo(layer2=layer2).to(device)
+    model = StereoLite(layer2=layer2).to(device)
     if ckpt_path:
         model.load_state_dict(
             torch.load(ckpt_path, map_location=device)['model_state'], strict=True)

@@ -1,7 +1,7 @@
 import torch
 import matplotlib.pyplot as plt
-from core.liteanystereo import CustomLiteAnyStereo
-from core.training_datasets import TrainingDataset, SceneFlowDataset, ETH3D, Middlebury
+from core.stereolite import StereoLite
+from core.stereo_datasets import TrainingDataset, SceneFlowDataset, ETH3D, Middlebury
 import numpy as np
 import random
 import argparse
@@ -71,7 +71,7 @@ def get_prediction(model, device, dataset, idx, compute_cost_volume=False):
     return left_img_np, disp_pred_np, error_np, disp_gt, valid_mask, vmax
     
 def parse_args():
-    parser = argparse.ArgumentParser(description='Inference script for CustomLiteAnyStereo')
+    parser = argparse.ArgumentParser(description='Inference script for StereoLite')
     parser.add_argument('--ckpt', type=str, default='./checkpoints/phase2_best_model.pth', help='Path to the model weights')
     parser.add_argument('--num_samples', type=int, default=10, help='Number of random samples to process')
     parser.add_argument('--out_dir', type=str, default='./inference_images', help='Directory to save inference results')
@@ -88,7 +88,7 @@ def parse_args():
 if __name__ == '__main__':
     args = parse_args()
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    model = CustomLiteAnyStereo(layer2=args.layer2).to(device)
+    model = StereoLite(layer2=args.layer2).to(device)
     out_dir = None
     
     # Load Weights

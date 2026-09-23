@@ -4,7 +4,7 @@ import numpy as np
 import torch.nn.functional as F
 
 from core.liteanystereo import CustomLiteAnyStereo
-from core.training_datasets import SceneFlowDataset
+from core.stereo_datasets import SceneFlowDataset
 from core.utils.utils import InputPadder
 
 def downsample_disp_and_valid(disp_gt, valid_mask, padder, scale_factor=4):

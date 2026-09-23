@@ -7,7 +7,7 @@ import torch
 import torch.nn.functional as F
 from tqdm import tqdm
 from core.liteanystereo import original_LAS
-import core.stereo_datasets as datasets
+import core.video_datasets as datasets
 from core.utils.utils import InputPadder
 from PIL import Image
 import torch.utils.data as data

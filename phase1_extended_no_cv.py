@@ -5,10 +5,10 @@ import enum
 import torch
 import torch.nn.functional as F
 from torch.cuda.amp import autocast, GradScaler
-from core.liteanystereo import CustomLiteAnyStereo
+from core.stereolite import StereoLite
 import os
 import time
-from core.training_datasets import fetch_training_dataloader, fetch_testing_dataloader
+from core.stereo_datasets import fetch_training_dataloader, fetch_testing_dataloader
 from torch.utils.tensorboard import SummaryWriter
 import argparse
 from datetime import datetime
@@ -61,7 +61,7 @@ def calculate_metrics(final_pred, disparity_gt, valid_mask, logger=None, is_eval
     
     return epe.item(), bad
 
-def evaluate(model:CustomLiteAnyStereo, val_loader, device, logger=None, cv=True):
+def evaluate(model:StereoLite, val_loader, device, logger=None, cv=True):
     #  Set to validation mode
     model.eval()
 
@@ -96,7 +96,7 @@ def phase1_extended_no_cv(ckpt, resume_ckpt):
     train_loader = fetch_training_dataloader(is_phase_2=False, datasets=['sceneflow', 'eth3d', 'middlebury'])
     val_loaders = fetch_testing_dataloader(datasets=['sceneflow', 'eth3d', 'middlebury'])
     
-    p1_model = CustomLiteAnyStereo().to(device)
+    p1_model = StereoLite().to(device)
     
     total_steps = 450000
     

@@ -1,5 +1,5 @@
-from core.training_datasets import Middlebury, ETH3D, SceneFlowDataset
-from core.stereo_datasets import SceneFlowVideo, SintelStereoVideo, SouthKenSV
+from core.stereo_datasets import Middlebury, ETH3D, SceneFlowDataset
+from core.video_datasets import SceneFlowVideo, SintelStereoVideo, SouthKenSV
 from core.utils import frame_utils
 import numpy as np
 from PIL import Image
