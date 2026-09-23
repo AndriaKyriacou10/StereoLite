@@ -25,7 +25,6 @@ class StereoAugmentor:
         img1 = self._brightness(img1, brightness)
         img2 = self._brightness(img2, brightness)
         
-        
         # Contrast
         img1 = self._contrast(img1, contrast)
         img2 = self._contrast(img2, contrast)

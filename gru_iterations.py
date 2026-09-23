@@ -1,3 +1,5 @@
+from ast import arg
+
 import torch
 import matplotlib.pyplot as plt
 from core.liteanystereo import CustomLiteAnyStereo
@@ -72,15 +74,16 @@ def get_predictions(model, device, dataset, compute_cost_volume=False, max_iters
 
 
 def plot_epe_iters(epe_list, max_iters, dataset_name, cv_flag=False):
-    save_path = f'./gru_iterations_test/epe_vs_iterations_{dataset_name}_{"cv" if cv_flag else "no_cv"}'
+    save_path = f'./gru_iterations_test_layer1/epe_vs_iterations_{dataset_name}_{"cv" if cv_flag else "no_cv"}'
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
     plt.figure(figsize=(8, 6))
     plt.plot(range(1, max_iters + 1), epe_list, marker='o')
-    plt.title('EPE vs. GRU Iterations')
+    plt.title(f'EPE vs. GRU Iterations {dataset_name}')
     plt.xlabel('Number of GRU Iterations')
     plt.ylabel('End-Point Error (EPE)')
     plt.xticks(range(1, max_iters + 1))
     plt.grid()
-    plt.savefig(f"{save_path}.png")
+    plt.savefig(f"{save_path}.png", dpi=400)
     plt.savefig(f"{save_path}.eps")
     logging.info(f"Plot saved as {save_path}.png and {save_path}.eps")
 
@@ -90,10 +93,11 @@ if __name__ == '__main__':
     parser.add_argument('--dataset', type=str, choices=['eth3d', 'sceneflow'] +[f"middlebury_{s}" for s in 'FHQ'])
     parser.add_argument('--max_iters', type=int, default=16, help='Maximum number of GRU iterations')
     parser.add_argument('--cost_volume', action='store_true')
+    parser.add_argument('--layer2', action='store_true', help='Use ContextNet with a second layer')
     args = parser.parse_args()
     
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    model = CustomLiteAnyStereo().to(device)
+    model = CustomLiteAnyStereo(layer2=args.layer2).to(device)
     ckpt = torch.load(args.ckpt, map_location=device)
     model.load_state_dict(ckpt['model_state'], strict=True)
     model.eval()
