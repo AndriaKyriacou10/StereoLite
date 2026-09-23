@@ -3,7 +3,6 @@ __pycache__/
 *.e*
 *.o*
 checkpoints/
-*.sh
 *.gif
 *.jpg
 *.eps
@@ -294,3 +293,7 @@ inference_images/train_cont_two_cycle/middlebury/inference_analysis_3_nocv.png
 inference_images/train_cont_two_cycle/middlebury/inference_analysis_4_nocv.png
 inference_images/train_cont_two_cycle/middlebury/inference_analysis_10_nocv.png
 inference_images/train_cont_two_cycle/middlebury/inference_analysis_11_nocv.png
+figures_for_report.sh
+gru_iterations.sh
+inference_script.sh
+test_weights_contextNet.sh

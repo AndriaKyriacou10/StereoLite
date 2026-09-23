@@ -1,0 +1,1 @@
+python benchmark_inference.py --layer2 --compute_flops
