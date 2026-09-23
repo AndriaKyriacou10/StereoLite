@@ -55,3 +55,4 @@ inference_script.sh
 test_weights_contextNet.sh
 inference_images
 temporal_diff
+training_stereo/phase1_extended_no_cv.py

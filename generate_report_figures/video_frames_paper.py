@@ -24,7 +24,7 @@ import json
 import csv
 from datetime import datetime
 import cv2
-from evaluation_og_stabilizer import run_stereo_model, run_stabilizer_on_video
+from evaluate_stabiliser.evaluation_og_stabilizer import run_stereo_model, run_stabilizer_on_video
 
 from bidastabilizer_integration.models.bidastabilizer import BiDAStabilizer
 

@@ -1,26 +1,10 @@
 """
-Composite already-rendered disparity PNGs into a qualitative comparison grid.
+Organise already-rendered disparity PNGs into a qualitative comparison grid.
 
 Layout follows the convention used in the stereo literature: rows are scenes,
 columns are configurations, column headers only, no axes, minimal spacing.
 
 Two details this handles that a naive imshow grid does not:
-
-* PER-ROW ASPECT RATIOS. ETH3D, Middlebury and FlyingThings3D images have
-  different aspect ratios, so a uniform grid would either stretch them or leave
-  uneven gaps. Row heights are derived from each row's actual image aspect.
-
-* WHITE BORDERS. matplotlib saves usually carry padding even with
-  bbox_inches='tight'. CROP_BORDERS trims near-white margins so panels abut
-  cleanly. Disable it if your renders are already tight, or if a genuinely
-  white scene region touches the frame edge.
-
-Colourbars are off by default. The comparison of interest is within a row, and
-the reference layout omits them; enabling them costs roughly 8% of the width per
-row and is only worth it if absolute disparity values matter to the argument.
-
-Usage:
-    python make_qualitative_grid.py
 """
 
 import os

@@ -11,7 +11,7 @@ import numpy as np
 import random
 from collections import defaultdict
 import os
-# RF_LIMIT = 29.0  # ContextNet theoretical receptive field radius, full-res px
+
 
 def save_error_vis(left_img, disp_pred, disp_gt, init_disp, valid_mask, save_path):
     
@@ -126,8 +126,7 @@ def binned_error(model, device, dataset, n_samples, compute_cost_volume,
             print(f"[{idx}/{min(n_samples, len(dataset))}] {name}")
  
     centers = (bins[:-1] + bins[1:]) / 2.0
-    keep = acc['init']['n'] >= min_count  # sparse bins give wild means at exactly the
-                                          # high-disparity end you're inspecting
+    keep = acc['init']['n'] >= min_count  
     out = {}
     for key in ('init', 'final'):
         n = np.maximum(acc[key]['n'], 1)
@@ -165,9 +164,6 @@ def binned_error(model, device, dataset, n_samples, compute_cost_volume,
     return centers, out, counts
 
 def plot_binned(centers, out, keep, counts, save_path, name):
-    """Stacked panels sharing x, so the 29px line sits at the same place in all three.
-    Separate panels rather than overlay: px error, a dimensionless ratio, and counts
-    spanning orders of magnitude cannot share a y-axis."""
     fig, ax = plt.subplots(2, 1, sharex=True, figsize=(8, 9),
                            gridspec_kw={'height_ratios': [1.5, 1.5]})
  
@@ -301,23 +297,6 @@ def run(model, device, dataset, n_samples, compute_cost_volume):
         delta = epe_arr - base
         print(f"{name:10s} EPE {epe_arr.mean():7.4f}  Δ {delta.mean():+7.4f}  "
           f"worse on {(delta > 0).sum()}/{len(delta)} samples")
-    
-    # cnxNet = 'context_net.model.conv1.weight'
-    # ckpt_no_cv_path = './continuous_training/checkpoints_continuous_two_cycle/train_continuous_two_cycle_best_no_cv_Aug15_14-32-26.pth'
-    # ckpt_cv_path = './continuous_training/checkpoints_continuous_two_cycle/train_continuous_two_cycle_best_cv_Aug15_14-32-26.pth'
-    # with_cv = torch.load(ckpt_cv_path, map_location='cpu')['model_state'][cnxNet]
-    # no_cv = torch.load(ckpt_no_cv_path, map_location='cpu')['model_state'][cnxNet]
-    
-    # for tag, sl in [('left', slice(0, 3)), ('right', slice(3, 6))]:
-    #     x, y = with_cv[:, sl].flatten(1), no_cv[:, sl].flatten(1)
-    #     cos = F.cosine_similarity(x, y, dim=1)
-    #     print(f"{tag:5s}  cos mean {cos.mean():.3f}  min {cos.min():.3f}"
-    #       f"norm {x.norm(dim=1).mean():.2f} -> {y.norm(dim=1).mean():.2f}")
-    # epe_stereo, epe_mono = np.array(epe_stereo), np.array(epe_mono)
-    # print("\n--- Summary ---")
-    # print(f"Mean EPE (real right image): {epe_stereo.mean():.4f}")
-    # print(f"Mean EPE (right image zeroed): {epe_mono.mean():.4f}")
-    # print(f"Relative degradation: {(epe_mono.mean() - epe_stereo.mean()) / epe_stereo.mean() * 100:.1f}%")
 
 @torch.no_grad()
 def per_scene(model, device, dataset, compute_cost_volume, max_disp=192, sat_thresh=0.9):
@@ -375,12 +354,16 @@ if __name__ == '__main__':
     dataset_eth = ETH3D(condition='test')
     dataset_mb = Middlebury(split='MiddEval3', resolution='H')
     if args.mode.lower() == 'run': 
+        ''' Compute EPE for different context net conditions (no right, no left, both zero, base) to test the effect of context net on disparity estimation 
+            and if result is monocular or not. 
+        '''
         run(model, device, dataset_SF, args.n_samples, args.compute_cost_volume)
     elif args.mode.lower() == 'binned':
         binned_error(model, device, dataset_SF, args.n_samples, args.compute_cost_volume, name="sceneflow")
         binned_error(model, device, dataset_eth, args.n_samples, args.compute_cost_volume, name="eth3d", bin_width=2)
         binned_error(model, device, dataset_mb, args.n_samples, args.compute_cost_volume, name="mb")
     else:
+        '''Visualise the disparity predictions'''
         visualize(model, dataset_SF, device, args.n_samples, args.compute_cost_volume, name="sceneflow")
         visualize(model, dataset_eth, device, args.n_samples, args.compute_cost_volume, name="eth3d")
         visualize(model, dataset_mb, device, args.n_samples, args.compute_cost_volume, name="middlebury")
