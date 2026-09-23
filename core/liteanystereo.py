@@ -94,8 +94,6 @@ class CustomLiteAnyStereo(nn.Module):
         else:
             return disparity_predictions
 
-
-
 class original_LAS(nn.Module):
     def __init__(self, fnet_pretrained=True):
         super(original_LAS, self).__init__()

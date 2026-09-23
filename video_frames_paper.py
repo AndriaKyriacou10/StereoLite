@@ -140,9 +140,7 @@ def load_models(name, ckpt_model, ckpt_stb, device):
     return stereo_model, stb_model
 
 def load_dataset(dataset):
-    if dataset == "southken":
-        val_dataset = datasets.SouthKenSV(pseudo_gt_dir='./data/datasets/SouthKensington/indoor/pseudo_gt', max_disp=MAX_DISP, border=0)
-    elif dataset.startswith("sintel"):
+    if dataset.startswith("sintel"):
         dstype = dataset.split("_")[1]
         val_dataset = datasets.SintelStereoVideo(dstype=dstype, max_disp=MAX_DISP)
     elif dataset == "things":
@@ -178,18 +176,23 @@ def save_video_frame_panels(disp_raw, disp_stabilized, left_imgs, disp_gt, frame
         disp_stabilized = torch.stack(disp_stabilized, dim=0)
     if isinstance(left_imgs, list):
         left_imgs = torch.stack(left_imgs, dim=0)
+    if isinstance(disp_gt, list):
+        disp_gt = torch.stack(disp_gt, dim=0)
  
     vmin = 0.0
     pooled = torch.cat([disp_raw, disp_stabilized]).clamp(min=0, max=MAX_DISP)
+    # vmax = float(np.percentile(pooled.cpu().numpy(), PCT))
+    sel = torch.as_tensor(frame_idxs, dtype=torch.long)
+    pooled = torch.cat([disp_raw[sel], disp_stabilized[sel]]).clamp(min=0, max=MAX_DISP)
     vmax = float(np.percentile(pooled.cpu().numpy(), PCT))
  
     os.makedirs(out_dir, exist_ok=True)
     for t in frame_idxs:
-        stem = os.path.join(out_dir, f"{scene}_{t:03d}")
-        save_rgb(left_imgs[t], f"{stem}_left.png", max_width=max_width)
-        save_panel(disp_raw[t, 0], f"{stem}_raw.png", vmin, vmax, max_width=max_width)
-        save_panel(disp_stabilized[t, 0], f"{stem}_stb.png", vmin, vmax, max_width=max_width)
-        save_panel(disp_gt[t, 0], f"{stem}_{gt_tag}.png", vmin, vmax, max_width=max_width)
+        stem = f"{scene}_{t:03d}"
+        save_rgb(left_imgs[t], f"{out_dir}/{stem}_left.png", max_width=max_width)
+        save_panel(disp_raw[t, 0], f"{out_dir}/raw/{stem}_raw.png", vmin, vmax, max_width=max_width)
+        save_panel(disp_stabilized[t, 0], f"{out_dir}/stb/{stem}_stb.png", vmin, vmax, max_width=max_width)
+        save_panel(disp_gt[t, 0], f"{out_dir}/{gt_tag}/{stem}_{gt_tag}.png", vmin, vmax, max_width=max_width)
         print(f"[{scene} frame {t}] saved left/raw/stb/GT  (vmax {vmax:.1f}px)")
  
     save_colorbar(vmin, vmax, os.path.join(out_dir, f"{scene}_cbar.pdf"))
@@ -205,6 +208,7 @@ def get_args():
     parser.add_argument('--start_frame', type=int, default=0, help="start frame index for video")
     parser.add_argument('--iter_name', default='iter35k', help="specific scene name for Sintel dataset (e.g., bamboo_2)")
     parser.add_argument('--kernel_size', type=int, default=50, help="kernel size for stabilizer")
+    parser.add_argument('--end_frame', type=int, default=None, help="end frame index for video")
     return parser.parse_args()
 
 if __name__ == "__main__":
@@ -214,26 +218,32 @@ if __name__ == "__main__":
     stereo_model, stb_model = load_models(args.name, args.ckpt_model, args.ckpt_stb, device)
     dataset = load_dataset(args.dataset)
     
-    out_dir = f"{args.out_dir}/{args.dataset}/{args.name}"
-    os.makedirs(out_dir, exist_ok=True)
-    
     idx = _get_idx(dataset, args.scene_name)
     print(idx)
     data = dataset[idx]
     scene_id, left_imgs, right_imgs, disp_gt_frames, valid_frames = data['scene_id'], data['left'], data['right'], data['disp'], data['valid']
     
     disp_preds = run_stereo_model(args.name, stereo_model, device, left_imgs, right_imgs)
-    disp_stabilized = run_stabilizer_on_video(args.name, stb_model, left_imgs, disp_preds, device=device)
+    disp_stabilized = run_stabilizer_on_video(args.name, stb_model, left_imgs, disp_preds, device=device, kernel_size=args.kernel_size)
     
-    frame_idxs = list(range(args.start_frame - 1, args.start_frame + 21))
+    end_frame = args.end_frame if args.end_frame is not None else 20
+    
+    if end_frame > len(left_imgs):
+        end_frame = len(left_imgs)
+        print(f"End frame exceeds available frames. Setting end_frame to {end_frame}.")
+    
+    frame_idxs = list(range(args.start_frame, end_frame))
     gt_tag = 'pseudo_gt' if args.dataset == 'southken' else 'gt'
+    
+    out_dir = f"{args.out_dir}/{args.name}/{args.dataset}/{scene_id}"
+    os.makedirs(out_dir, exist_ok=True)
     
     save_video_frame_panels(
     disp_preds, disp_stabilized, left_imgs, disp_gt_frames,
     frame_idxs=frame_idxs,
     scene=args.scene_name,
     out_dir=out_dir,
-    max_width=500, 
+    max_width=None, 
     gt_tag=gt_tag
     )
     

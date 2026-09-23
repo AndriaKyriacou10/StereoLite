@@ -10,7 +10,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import random
 from collections import defaultdict
-RF_LIMIT = 29.0  # ContextNet theoretical receptive field radius, full-res px
+import os
+# RF_LIMIT = 29.0  # ContextNet theoretical receptive field radius, full-res px
 
 def save_error_vis(left_img, disp_pred, disp_gt, init_disp, valid_mask, save_path):
     
@@ -139,7 +140,8 @@ def binned_error(model, device, dataset, n_samples, compute_cost_volume,
         print(f"{bins[i]:>4.0f}-{bins[i+1]:>4.0f} {counts[i]:>10,} "
               f"{out['init']['abs'][i]:>10.3f} {out['init']['rel'][i]:>9.3f} "
               f"{out['final']['abs'][i]:>10.3f}")
- 
+    save_dir = 'binned_ContextNet_Layer2'
+    os.makedirs(save_dir, exist_ok=True)
     plot_binned(centers[keep], out, keep, counts,
                 f"{save_dir}/{name}_binned_init_error_{cv}.png", name)
     np.savez(f"{save_dir}/{name}_binned_init_error_{cv}.npz",
@@ -166,31 +168,29 @@ def plot_binned(centers, out, keep, counts, save_path, name):
     """Stacked panels sharing x, so the 29px line sits at the same place in all three.
     Separate panels rather than overlay: px error, a dimensionless ratio, and counts
     spanning orders of magnitude cannot share a y-axis."""
-    fig, ax = plt.subplots(3, 1, sharex=True, figsize=(8, 9),
-                           gridspec_kw={'height_ratios': [3, 2, 1.2]})
+    fig, ax = plt.subplots(2, 1, sharex=True, figsize=(8, 9),
+                           gridspec_kw={'height_ratios': [1.5, 1.5]})
  
-    ax[0].plot(centers, out['init']['abs'][keep], 'o-', color='#2a78d6',
-               label='init_disp (ContextNet)')
-    ax[0].plot(centers, out['final']['abs'][keep], 's--', color='#1baf7a',
+    ax[0].plot(centers, out['init']['abs'][keep], 'o-', color="#2a71c8",
+               label='init. disp (ContextNet)')
+    ax[0].plot(centers, out['final']['abs'][keep], 's--', color="#05a66d",
                label='final disp (after GRU)')
     ax[0].set_ylabel('mean |pred - GT|  (px)')
     ax[0].legend(fontsize=9)
  
-    ax[1].plot(centers, out['init']['rel'][keep], 'o-', color='#eb6834')
-    ax[1].set_ylabel('relative error')
+    # ax[1].plot(centers, out['init']['rel'][keep], 'o-', color='#eb6834')
+    # ax[1].set_ylabel('relative error')
  
     all_centers = centers
-    ax[2].bar(all_centers, counts[keep], width=3.5, color='#888780')
-    ax[2].set_yscale('log')
-    ax[2].set_ylabel('pixels')
-    ax[2].set_xlabel('GT disparity (px)')
+    ax[1].bar(all_centers, counts[keep], width=3.5, color="#6F6E69")
+    ax[1].set_yscale('log')
+    ax[1].set_ylabel('pixels')
+    ax[1].set_xlabel('GT disparity (px)')
  
+    ax[0].set_title(f'{name.upper()}: Init. Disp error vs GT disparity')
+    
     for a in ax:
-        a.axvline(RF_LIMIT, color='r', ls='--', lw=1.2)
-        a.grid(alpha=0.3)
-    ax[0].text(RF_LIMIT + 2, ax[0].get_ylim()[1] * 0.9,
-               f'RF limit (±{RF_LIMIT:.0f}px)', color='r', fontsize=9)
-    ax[0].set_title(f'{name}: init_disp error vs GT disparity')
+        a.grid(alpha=0.3, linestyle='--')
  
     fig.tight_layout()
     fig.savefig(save_path, dpi=140)
@@ -254,7 +254,7 @@ def get_disp_isolated(model, img1, img2, compute_cost_volume, zero_context_right
         disp = disp + delta
         mask = model.mask_head(hidden_state)
         disp_up = model.upsample_disp(disp, mask)
-    return disp_up
+    return torch.clamp(disp_up, min=0)
 
 @torch.no_grad()
 def run(model, device, dataset, n_samples, compute_cost_volume):
@@ -262,6 +262,7 @@ def run(model, device, dataset, n_samples, compute_cost_volume):
     epe_stereo, epe_mono = [], []
 
     indices = range(min(n_samples, len(dataset)))
+    print(len(dataset))
     CONDITIONS = {
         'no_right': dict(zero_context_right=True, zero_context_left=False),
         'no_left': dict(zero_context_right=False, zero_context_left=True),
@@ -275,12 +276,20 @@ def run(model, device, dataset, n_samples, compute_cost_volume):
         img2 = img2.unsqueeze(0).to(device)
         disp_gt = disp_gt.to(device)
         valid_mask = valid_mask.to(device).bool()
+        
+        if torch.isnan(disp_gt).any() or torch.isinf(disp_gt).any(): continue
 
         padder = InputPadder(img1.shape, divis_by=32)
         img1_p, img2_p = padder.pad(img1, img2)
         
+                
+        if torch.isnan(disp_gt).any() or torch.isinf(disp_gt).any():
+            print(f"[{idx}] disp_gt has NaN/Inf — skipping")
+            continue
+                
         for condition, kwargs in CONDITIONS.items():
             pred_disp = get_disp_isolated(model, img1_p, img2_p, compute_cost_volume=compute_cost_volume, **kwargs)
+            if torch.isnan(pred_disp).any(): continue
             pred_disp = padder.unpad(pred_disp).squeeze()
             vm = valid_mask.squeeze() 
             epe = torch.abs(pred_disp[vm] - disp_gt.squeeze()[vm]).mean().item()
@@ -293,17 +302,17 @@ def run(model, device, dataset, n_samples, compute_cost_volume):
         print(f"{name:10s} EPE {epe_arr.mean():7.4f}  Δ {delta.mean():+7.4f}  "
           f"worse on {(delta > 0).sum()}/{len(delta)} samples")
     
-    cnxNet = 'context_net.model.conv1.weight'
-    ckpt_no_cv_path = './continuous_training/checkpoints_continuous_two_cycle/train_continuous_two_cycle_best_no_cv_Aug15_14-32-26.pth'
-    ckpt_cv_path = './continuous_training/checkpoints_continuous_two_cycle/train_continuous_two_cycle_best_cv_Aug15_14-32-26.pth'
-    with_cv = torch.load(ckpt_cv_path, map_location='cpu')['model_state'][cnxNet]
-    no_cv = torch.load(ckpt_no_cv_path, map_location='cpu')['model_state'][cnxNet]
+    # cnxNet = 'context_net.model.conv1.weight'
+    # ckpt_no_cv_path = './continuous_training/checkpoints_continuous_two_cycle/train_continuous_two_cycle_best_no_cv_Aug15_14-32-26.pth'
+    # ckpt_cv_path = './continuous_training/checkpoints_continuous_two_cycle/train_continuous_two_cycle_best_cv_Aug15_14-32-26.pth'
+    # with_cv = torch.load(ckpt_cv_path, map_location='cpu')['model_state'][cnxNet]
+    # no_cv = torch.load(ckpt_no_cv_path, map_location='cpu')['model_state'][cnxNet]
     
-    for tag, sl in [('left', slice(0, 3)), ('right', slice(3, 6))]:
-        x, y = with_cv[:, sl].flatten(1), no_cv[:, sl].flatten(1)
-        cos = F.cosine_similarity(x, y, dim=1)
-        print(f"{tag:5s}  cos mean {cos.mean():.3f}  min {cos.min():.3f}"
-          f"norm {x.norm(dim=1).mean():.2f} -> {y.norm(dim=1).mean():.2f}")
+    # for tag, sl in [('left', slice(0, 3)), ('right', slice(3, 6))]:
+    #     x, y = with_cv[:, sl].flatten(1), no_cv[:, sl].flatten(1)
+    #     cos = F.cosine_similarity(x, y, dim=1)
+    #     print(f"{tag:5s}  cos mean {cos.mean():.3f}  min {cos.min():.3f}"
+    #       f"norm {x.norm(dim=1).mean():.2f} -> {y.norm(dim=1).mean():.2f}")
     # epe_stereo, epe_mono = np.array(epe_stereo), np.array(epe_mono)
     # print("\n--- Summary ---")
     # print(f"Mean EPE (real right image): {epe_stereo.mean():.4f}")
@@ -350,17 +359,19 @@ def plot_per_scene(rows, save_path):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--ckpt', required=True)
-    parser.add_argument('--n_samples', type=int, default=500)
+    parser.add_argument('--n_samples', type=int, default=5000)
     parser.add_argument('--compute_cost_volume', action='store_true')
     parser.add_argument('--mode', default='run')
+    parser.add_argument('--layer2', action='store_true', help='Add layer2 of context net')
     args = parser.parse_args()
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    model = CustomLiteAnyStereo().to(device)
+    model = CustomLiteAnyStereo(layer2=args.layer2).to(device)
     weights = torch.load(args.ckpt, map_location=device)
     model.load_state_dict(weights['model_state'])
 
     dataset_SF = SceneFlowDataset(augmentor=None, is_phase_2=False, mode='TEST', subsets=['flyingthings'])
+    print(f"Loaded {len(dataset_SF)} samples from SceneFlow dataset")
     dataset_eth = ETH3D(condition='test')
     dataset_mb = Middlebury(split='MiddEval3', resolution='H')
     if args.mode.lower() == 'run': 
