@@ -12,6 +12,7 @@ checkpoints/
 *.csv
 *.npz
 *.xlsx
+*.pth
 save_figures_report.py
 stb_delta.py
 plot_gru_iters_all.py

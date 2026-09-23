@@ -182,7 +182,7 @@ def measure_metrics_per_scene(disp_raw, disp_stabilized, disp_gt, valid_mask, de
 
 def evaluate(name, stereo_model, stb_model, device, dataset_name, kernel_size=50):
     if dataset_name == 'things':
-        max_disp = 192 if name == "LAS_stabilizer" else 512
+        max_disp = 192 if name == "LAS_stabilizer" else 192
         dataset = datasets.SceneFlowVideo(mode="TEST", subsets=['flyingthings'], max_disp=max_disp)
     elif dataset_name.split('_')[0] == 'sintel':
         dstype = dataset_name.split('_')[1]
@@ -436,9 +436,6 @@ def check_flow(stabilizer:BiDAStabilizer, device):
     
     with torch.no_grad():
         pred_flow = stabilizer.raft.forward_fullres(img1, img2)
-
-    print("pred_flow shape:", pred_flow.shape)
-    print("gt flow shape:  ", gt.shape)
     
     pred_flow = pred_flow.squeeze()
     
@@ -551,7 +548,7 @@ if __name__ == "__main__":
         
     overall_path = os.path.join(args.output_dir, f'overall_results_{args.name}_{args.dataset}_192_disp_{args.iter_name}.json')
     with open(overall_path, 'w') as f:
-        json.dump(f"Name : {args.name}, Dataset: {args.dataset}, Iteration: {args.iter_name}, Kernel Size: {args.kernel_size}\n", f, indent=2)
+        json.dump(f"Name : {args.name}, Dataset: {args.dataset}, Iteration: {args.iter_name}, Kernel Size: {args.kernel_size}", f, indent=2)
         json.dump(overall, f, indent=2)
 
     per_scene_path = os.path.join(args.output_dir, f'per_scene_results_{args.name}_{args.dataset}_192_disp_{args.iter_name}.json')

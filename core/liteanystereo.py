@@ -11,6 +11,7 @@ from core.utils.utils import InputPadder
 from collections import defaultdict
 
 class CustomLiteAnyStereo(nn.Module):
+    # StereoLite
     def __init__(self,  scale_right=0.3, layer2=False):
         super(CustomLiteAnyStereo, self).__init__()
         self.fnet = FeatureNet()
