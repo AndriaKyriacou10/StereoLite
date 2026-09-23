@@ -1,0 +1,63 @@
+{
+  "params": {
+    "las_total": 7603626,
+    "las_trainable": 7603626,
+    "stb_total": 9624309,
+    "stb_trainable": 9624309,
+    "stb_excluding_sea_raft": 740849,
+    "pipeline_total": 17227935
+  },
+  "stages": {
+    "las_single_frame": {
+      "time_ms_mean": 43.55625,
+      "time_ms_std": 0.039248718514316445,
+      "time_ms_min": 43.476993560791016,
+      "peak_mem_gb": 1.0675477981567383,
+      "repeats": 10
+    },
+    "las_clip": {
+      "time_ms_mean": 768.8658813476562,
+      "time_ms_std": 0.25013477315316746,
+      "time_ms_min": 768.3922119140625,
+      "peak_mem_gb": 1.135441780090332,
+      "repeats": 10,
+      "time_ms_per_frame": 38.44329406738281
+    },
+    "stabilizer": {
+      "time_ms_mean": 3702.6666015625,
+      "time_ms_std": 41.343705368178085,
+      "time_ms_min": 3645.7255859375,
+      "peak_mem_gb": 18.503543376922607,
+      "repeats": 10,
+      "time_ms_per_frame": 185.133330078125
+    },
+    "end_to_end": {
+      "time_ms_mean": 4519.778125,
+      "time_ms_std": 48.15021789418293,
+      "time_ms_min": 4469.05322265625,
+      "peak_mem_gb": 18.501163005828857,
+      "repeats": 10,
+      "time_ms_per_frame": 225.98890624999999
+    }
+  },
+  "config": {
+    "frames": 20,
+    "resolution": [
+      720,
+      1280
+    ],
+    "padded_resolution": [
+      736,
+      1280
+    ],
+    "kernel_size": 50,
+    "precision": "fp32",
+    "warmup": 3,
+    "repeats": 10,
+    "gpu": "NVIDIA A100-PCIE-40GB",
+    "torch": "2.12.0+cu126",
+    "cuda": "12.6",
+    "python": "3.12.13",
+    "timestamp": "2026-09-02T21:59:28"
+  }
+}

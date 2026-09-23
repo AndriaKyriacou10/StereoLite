@@ -7,7 +7,7 @@ import time
 import numpy as np
 from core.utils.utils import InputPadder
 import flops_count
-from ptflops import get_model_complexity_info
+# from ptflops import get_model_complexity_info
 import re
 
 @torch.no_grad()
@@ -87,7 +87,7 @@ def parse_args():
     p.add_argument('--warmup', type=int, default=15)
     p.add_argument('--iters', type=int, default=50)
     p.add_argument('--out_csv', type=str, default='./benchmark_results.csv')
-    p.add_argument('--gru_iters', typr=int, default=8, help='Number of GRU iterations for the original LAS model')
+    p.add_argument('--gru_iters', type=int, default=8, help='Number of GRU iterations for the original LAS model')
     p.add_argument('--layer2', action='store_true', help='Use ContextNet with a second layer')
     p.add_argument('--compute_flops', action='store_true', help='Compute FLOPs of the model')
     return p.parse_args()

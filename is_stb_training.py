@@ -170,6 +170,7 @@ def parse_arguments():
     )
     
     parser.add_argument('--max_batches', type=int, default=200, help='Maximum number of batches to process')
+    parser.add_argument('iter', type=int, help='Iteration number for logging purposes')
     args = parser.parse_args()
     return args
 
@@ -266,7 +267,7 @@ if __name__ == "__main__":
     fve = 1.0 - totals["fve_num"] / max(totals["fve_den"], 1e-8)
     means = {k: v / n for k, v in totals.items() if not k.startswith("fve_")}
     
-    file_path = f"is_stb_training_{args.name}_192_mask_iter25k.json"
+    file_path = f"is_stb_training_{args.name}_192_mask_iter_{args.iter}k.json"
     
     payload = {
     "args": vars(args),
