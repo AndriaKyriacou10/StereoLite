@@ -6,7 +6,6 @@ checkpoints/
 *.gif
 *.jpg
 *.eps
-*.svg
 *.pdf
 *.csv
 *.npz
