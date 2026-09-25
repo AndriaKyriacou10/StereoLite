@@ -229,3 +229,4 @@ finetune_real_no_CV.sh
 is_stb_training.sh
 phase1_extended.sh
 phase1_training_SCALE_RIGHT_CHANGE.sh
+eval_results_video
