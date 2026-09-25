@@ -3,7 +3,7 @@ __pycache__/
 *.e*
 *.o*
 checkpoints/
-*.gif
+
 *.jpg
 *.eps
 *.pdf

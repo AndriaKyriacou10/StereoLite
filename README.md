@@ -39,10 +39,9 @@ Efficiency measured at 384×1248 on an NVIDIA A100.
 
 Pipeline cost at 720×1280 (fp32, A100-40GB, kernel_size=50):<br>17.23 M params | 225.99 ms per frame | 18.5 GB.
 
-<video width="1280" height="720" controls>
-  <source src="assets/side_by_side.mp4" type="video/mp4">
-</video>
-![](assets/side_by_side.mp4)
+
+![LAS vs LAS+BiDA](assets/side_by_side_SK.gif)
+![LAS vs LAS+BiDA](assets/side_by_side_SINTEL.gif)
 
 ---
 
