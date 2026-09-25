@@ -6,18 +6,6 @@ import statistics
 import core.video_datasets as datasets
 import numpy as np
 
-# with open('./eval_results_video/per_scene_results_LAS_stabilizer_sintel_clean_TEST1.json') as f:
-#     data = json.load(f)
-
-# vals = [d['r_raw'] for d in data
-#         if d['n_pairwise'] > 0 and not math.isnan(d['r_raw'])]
-
-# print(f"scenes used: {len(vals)} / {len(data)}")
-# print(f"median r_raw: {statistics.median(vals):.4f}")
-# print(f"mean   r_raw: {statistics.mean(vals):.4f}")
-# print(f"IQR:    {statistics.quantiles(vals, n=4)[0]:.4f} – "
-#       f"{statistics.quantiles(vals, n=4)[2]:.4f}")
-
 las_pth = 'LAS/per_scene_results_LAS_stabilizer_things.csv'
 raft_pth = 'Raft_Stereo/per_scene_results_raftstereo_stabilizer_things.csv'
 df = pd.read_csv(f'./eval_results_video/{raft_pth}')

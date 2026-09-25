@@ -1,7 +1,7 @@
 import argparse
 import torch
 import numpy as np
-from core.liteanystereo import CustomLiteAnyStereo
+from core.stereolite import StereoLite
 from core.stereo_datasets import SceneFlowDataset, ETH3D, Middlebury
 from core.utils.utils import InputPadder
 from core.submodule import build_correlation_volume
@@ -340,12 +340,12 @@ if __name__ == '__main__':
     parser.add_argument('--ckpt', required=True)
     parser.add_argument('--n_samples', type=int, default=5000)
     parser.add_argument('--compute_cost_volume', action='store_true')
-    parser.add_argument('--mode', default='run')
+    parser.add_argument('--mode', default='run', choices=['run', 'binned', 'visualize'])
     parser.add_argument('--layer2', action='store_true', help='Add layer2 of context net')
     args = parser.parse_args()
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    model = CustomLiteAnyStereo(layer2=args.layer2).to(device)
+    model = StereoLite(layer2=args.layer2).to(device)
     weights = torch.load(args.ckpt, map_location=device)
     model.load_state_dict(weights['model_state'])
 
@@ -362,7 +362,7 @@ if __name__ == '__main__':
         binned_error(model, device, dataset_SF, args.n_samples, args.compute_cost_volume, name="sceneflow")
         binned_error(model, device, dataset_eth, args.n_samples, args.compute_cost_volume, name="eth3d", bin_width=2)
         binned_error(model, device, dataset_mb, args.n_samples, args.compute_cost_volume, name="mb")
-    else:
+    elif args.mode.lower() == 'visualize':
         '''Visualise the disparity predictions'''
         visualize(model, dataset_SF, device, args.n_samples, args.compute_cost_volume, name="sceneflow")
         visualize(model, dataset_eth, device, args.n_samples, args.compute_cost_volume, name="eth3d")
